@@ -37,7 +37,7 @@ Questions and answers:
 
 **Does it change my music?** No. Prism only changes what you hear while it’s on. Your library, playlists and accounts stay exactly as they are, and turning Prism off plays the music as normal.
 
-**Does it need the internet?** Once, for a one-time 700 MB download that Prism needs to split music. After that it works offline.
+**Does it need the internet?** Once, for a one-time 700 MB download that Prism needs to split music. After that it works offline. It also checks for updates once a day.
 
 **Which Macs does it run on?** Macs with Apple silicon, running macOS 26 or later.
 
