@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Builds a Developer ID–signed, notarized Prism and packages it as a DMG and a zip in dist/.
+# Builds a Developer ID–signed, notarized Prism and packages it as a DMG and a zip in dist/, with the zip signed
+# for Sparkle (the EdDSA key in the login Keychain, made by Sparkle's generate_keys). scripts/publish.sh ships it.
 # Notarization uses the Apple ID signed into Xcode (Settings › Accounts); no notarytool profile needed.
 set -euo pipefail
 cd "$(dirname "$0")/../Prism"
@@ -49,7 +50,8 @@ STAGE=$(mktemp -d)
 cp -R "$APP" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Prism" -srcfolder "$STAGE" -ov -format UDZO -fs APFS "$DIST/Prism-$VERSION.dmg" >/dev/null 2>&1
 rm -rf "$STAGE"
-echo "✓ dist/Prism-$VERSION.dmg and .zip (notarized, stapled)"
+"../.build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update" "$DIST/Prism-$VERSION.zip" > "$DIST/Prism-$VERSION.sig"
+echo "✓ dist/Prism-$VERSION.dmg and .zip (notarized, stapled; zip signed for updates)"
 
 echo "▸ Installing to /Applications"
 osascript -e 'quit app id "com.mattfalconer.Prism"' >/dev/null 2>&1 || true

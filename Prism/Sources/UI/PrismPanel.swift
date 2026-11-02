@@ -315,6 +315,8 @@ private struct Footer: View {
                     openWindow(id: "performance")
                     NSApp.activate()
                 }
+                CheckForUpdatesButton()
+                ReportProblemButton()
                 Divider()
                 Toggle("Open at Login", isOn: Binding(get: { model.launchesAtLogin }, set: { model.launchesAtLogin = $0 }))
                 Toggle("Show in Menu Bar", isOn: $showsMenuBarIcon)

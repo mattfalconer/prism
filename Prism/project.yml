@@ -9,8 +9,10 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    # MLX runs on Apple silicon only; an Intel Mac gets macOS's own "not supported on this Mac" message.
+    ARCHS: arm64
+    MARKETING_VERSION: "1.1"
+    CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: XNRZ2YX628
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development"
@@ -19,6 +21,9 @@ settings:
 packages:
   StemSeparation:
     path: ../Packages/StemSeparation
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.1
 
 targets:
   Prism:
@@ -32,6 +37,7 @@ targets:
     dependencies:
       - package: StemSeparation
         product: StemSeparation
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mattfalconer.Prism

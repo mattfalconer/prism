@@ -308,7 +308,15 @@ final class PrismModel {
         case .checking: install.step = .checking; install.received = install.total; install.secondsLeft = nil
         case .preparing: install.step = .preparing; install.received = install.total; install.secondsLeft = nil
         case .downloading(let received, let total):
-            guard install.step == .downloading else { return }
+            if install.step != .downloading {
+                // Either a late update from the download that just finished, or the next copy starting over.
+                guard received < install.received else { return }
+                install.step = .downloading
+                install.secondsLeft = nil
+                lastSample = nil
+                bytesPerSecond = nil
+                downloadStart = Date()
+            }
             let now = Date()
             if let last = lastSample {
                 let dt = now.timeIntervalSince(last.time)
@@ -347,7 +355,13 @@ final class PrismModel {
                     self.rebuild()
                 }
             } catch {
-                await MainActor.run { self.status = .failed(error.localizedDescription) }
+                // A damaged copy would fail the same way every time; remove it so turning on downloads it again.
+                let damaged = ModelLocation.isDamaged
+                if damaged { try? FileManager.default.removeItem(at: ModelLocation.sw) }
+                await MainActor.run {
+                    self.status = .failed(damaged ? "Prism's model file was damaged, so it has been removed. Turn Prism on to download it again."
+                                                  : error.localizedDescription)
+                }
             }
         }
     }

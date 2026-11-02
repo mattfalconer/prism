@@ -28,5 +28,11 @@
 	<string>Prism can play, pause and skip in your music app from its menu.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Prism listens to the app you choose so it can split its music into stems as it plays.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://prism.mattfalconer.com/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>/hi/rLwbXM1TiXc0fo82gbJ9/XDz4U8VL6A7YOlLtdQ=</string>
 </dict>
 </plist>

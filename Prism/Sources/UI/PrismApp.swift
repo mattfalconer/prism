@@ -15,6 +15,8 @@ struct PrismApp: App {
         .defaultLaunchBehavior(.presented)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
+            CommandGroup(replacing: .help) { ReportProblemButton() }
         }
 
         Window("Performance", id: "performance") {
@@ -37,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let model = PrismModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Updater.shared.start()
         let arguments = ProcessInfo.processInfo.arguments
         if let i = arguments.firstIndex(of: "--tap-pid"), let pid = pid_t(arguments[i + 1]) { Self.model.debugTap(pid: pid) }
         if arguments.contains("--on") || UserDefaults.standard.bool(forKey: "on") { Self.model.turnOn() }

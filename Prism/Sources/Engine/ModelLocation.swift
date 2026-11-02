@@ -14,16 +14,31 @@ nonisolated enum ModelLocation {
     static let source = URL(string: "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/BS-Roformer-SW.ckpt")!
     static let digest = "24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e"
     static let downloadBytes: Int64 = 699_412_152
+    /// Size of the converted weights, to tell a damaged copy from a good one.
+    static let installedBytes: Int64 = 698_849_201
+    /// Other places to fetch the same checkpoint, `{"urls": […]}`, tried before `source`. Whatever is
+    /// downloaded must still match `digest`, so this can only add copies of the same file: if the original
+    /// release ever moves, pointing this at a new copy keeps first runs working without an app update.
+    static let mirrors = URL(string: "https://prism.mattfalconer.com/model.json")!
 
     static var isInstalled: Bool { FileManager.default.fileExists(atPath: sw.path) }
+
+    /// True when the installed weights are missing or the wrong size (a disk error or a copy cut short).
+    static var isDamaged: Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: sw.path)[.size] as? Int64) ?? nil
+        return size != installedBytes
+    }
 
     enum InstallError: LocalizedError {
         case corrupt
         case server(Int)
+        case space(needed: Int64)
         var errorDescription: String? {
             switch self {
             case .corrupt: "The download was damaged. Turn Prism on to try again."
             case .server(let status): "The download server answered \(status). Try again in a minute."
+            case .space(let needed):
+                "Prism needs \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)) of free space to set up. Free up some space, then try again."
             }
         }
     }
@@ -38,6 +53,12 @@ nonisolated enum ModelLocation {
     /// Cancelling the task stops the download.
     static func install(report: @escaping @Sendable (Step) -> Void) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // The checkpoint and its converted copy sit side by side for a moment, plus some room to spare.
+        let needed = downloadBytes + installedBytes + 200_000_000
+        if let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
+           free < needed {
+            throw InstallError.space(needed: needed)
+        }
         let checkpoint = folder.appendingPathComponent("BS-Roformer-SW.ckpt")
         // The extension tells MLX the format, so the half-written copy keeps it until it's moved into place.
         let partial = folder.appendingPathComponent("BS-Roformer-SW.partial.safetensors")
@@ -45,21 +66,40 @@ nonisolated enum ModelLocation {
             try? FileManager.default.removeItem(at: checkpoint)
             try? FileManager.default.removeItem(at: partial)
         }
-        var attempt = 1
-        while true {
-            do {
-                try await download(to: checkpoint, report: report)
-                break
-            } catch let error as URLError where attempt < 4 && error.code != .cancelled {
-            } catch InstallError.server(let status) where attempt < 4 && [403, 408, 429, 500, 502, 503, 504].contains(status) {
+        let sources = await sources()
+        var lastError: any Error = InstallError.corrupt
+        downloading: for (index, url) in sources.enumerated() {
+            let isLast = index == sources.count - 1
+            var attempt = 1
+            while true {
+                do {
+                    try await download(url, to: checkpoint, report: report)
+                    report(.checking)
+                    let matches = try await Task.detached(priority: .userInitiated) { try sha256(of: checkpoint) == digest }.value
+                    guard matches else { throw InstallError.corrupt }
+                    break downloading
+                } catch let error as URLError where error.code == .cancelled {
+                    throw error
+                } catch {
+                    try Task.checkCancellation()
+                    lastError = error
+                    let retryable = switch error {
+                    case is URLError: true
+                    case InstallError.server(let status): [403, 408, 429, 500, 502, 503, 504].contains(status)
+                    default: false
+                    }
+                    // Retry this copy a few times, then move on to the next; the last one's error is the one shown.
+                    guard retryable && attempt < 4 else {
+                        if isLast { throw lastError }
+                        continue downloading
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(800 * attempt))
+                attempt += 1
             }
-            try await Task.sleep(for: .milliseconds(800 * attempt))
-            attempt += 1
         }
         try Task.checkCancellation()
         try await Task.detached(priority: .userInitiated) {
-            report(.checking)
-            guard try sha256(of: checkpoint) == digest else { throw InstallError.corrupt }
             report(.preparing)
             _ = try StemSplitter.convertCheckpoint(checkpoint, to: partial, config: .sw, widen: true)
             if isInstalled { return }   // another copy of Prism finished first
@@ -72,7 +112,19 @@ nonisolated enum ModelLocation {
         init(_ value: T) { self.value = value }
     }
 
-    private static func download(to file: URL, report: @escaping @Sendable (Step) -> Void) async throws {
+    /// The mirrors listed on prism.mattfalconer.com (if it answers quickly), then the original release.
+    private static func sources() async -> [URL] {
+        struct List: Decodable { let urls: [String] }
+        var request = URLRequest(url: mirrors, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let listed = await (try? URLSession.shared.data(for: request))
+            .flatMap { data, response in (response as? HTTPURLResponse)?.statusCode == 200 ? try? JSONDecoder().decode(List.self, from: data) : nil }?
+            .urls.compactMap { URL(string: $0) }.filter { $0.scheme == "https" } ?? []
+        var seen = Set<URL>()
+        return (listed + [source]).filter { seen.insert($0).inserted }
+    }
+
+    private static func download(_ source: URL, to file: URL, report: @escaping @Sendable (Step) -> Void) async throws {
         let task = Box<URLSessionDownloadTask?>(nil)
         let observation = Box<NSKeyValueObservation?>(nil)
         defer { observation.value?.invalidate() }
