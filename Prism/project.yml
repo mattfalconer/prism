@@ -1,0 +1,63 @@
+name: Prism
+options:
+  bundleIdPrefix: com.mattfalconer
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: XNRZ2YX628
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+packages:
+  StemSeparation:
+    path: ../Packages/StemSeparation
+
+targets:
+  Prism:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Resources
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: StemSeparation
+        product: StemSeparation
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mattfalconer.Prism
+        PRODUCT_NAME: Prism
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/Prism.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+        # `PRISM_PROMO=PROMO` on the xcodebuild line builds the launch film's tools. Empty for every normal build.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(PRISM_PROMO)"
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
+schemes:
+  Prism:
+    build:
+      targets:
+        Prism: all
+    run:
+      config: Debug

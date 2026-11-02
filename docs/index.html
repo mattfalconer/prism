@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prism</title>
+<meta name="description" content="Prism splits whatever your Mac is playing into vocals, drums, bass and the rest, as it plays. Take the vocals out of anything.">
+<link rel="icon" href="media/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&family=Geist+Mono:wght@400..600&display=swap">
+<style>
+/* Layout: one dark room lit by a prism. Violet-black ground and white type; colour appears only where the music
+   splits (the six stem colours and the app's violet).
+   Single deliberate dark look in every viewer theme. */
+:root {
+  --night: #0b0a11;
+  --night-2: #12111b;
+  --glass: #1d1b27;
+  --glass-2: #272533;
+  --ink: #f4f2fa;
+  --ink-2: #b6b1c6;
+  --ink-3: #7d788f;
+  --rule: rgba(255, 255, 255, 0.08);
+  --accent: #7b6cff;
+  --accent-hi: #8f82ff;
+  --vocals: #ff375f;
+  --drums: #ffd60a;
+  --bass: #5e5ce6;
+  --guitar: #ff9f0a;
+  --piano: #66d4cf;
+  --other: #30b0c7;
+  --display: "Instrument Sans", -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --text: "Instrument Sans", -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --wide: 1240px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--night);
+  color: var(--ink);
+  font-family: var(--text);
+  font-size: 18px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 60;
+  background: rgba(11, 10, 17, 0.86);
+}
+main { overflow-x: clip; }
+img, video { display: block; max-width: 100%; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 3px; border-radius: 6px; }
+
+.wrap { width: 100%; max-width: calc(var(--wide) + 40px); margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+.narrow { max-width: 800px; }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; color: inherit; }
+h1 { font-size: clamp(50px, 9.4vw, 140px); line-height: 0.93; letter-spacing: -0.045em; font-weight: 640; font-stretch: 88%; }
+h2 { font-size: clamp(40px, 6.2vw, 88px); line-height: 0.97; letter-spacing: -0.04em; font-weight: 630; font-stretch: 90%; }
+h3 { font-size: 21px; line-height: 1.2; letter-spacing: -0.012em; font-weight: 600; }
+p { margin: 0; text-wrap: pretty; }
+.lede { font-size: clamp(19px, 1.9vw, 24px); line-height: 1.45; color: var(--ink-2); max-width: 34em; letter-spacing: -0.008em; }
+.caption { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.01em; color: var(--ink-3); }
+
+/* Navigation */
+.nav {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 50;
+  background: rgba(11, 10, 17, 0.7);
+  -webkit-backdrop-filter: saturate(160%) blur(22px); backdrop-filter: saturate(160%) blur(22px);
+  border-bottom: 1px solid var(--rule);
+}
+.nav .wrap { display: flex; align-items: center; gap: 28px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; letter-spacing: -0.02em; font-size: 18px; }
+.brand img { width: 28px; height: 28px; }
+.nav nav { display: flex; gap: 26px; margin-left: auto; font-size: 14.5px; }
+.nav nav a { text-decoration: none; color: var(--ink-2); transition: color 0.2s; }
+.nav nav a:hover { color: var(--ink); }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap;
+  background: var(--accent); color: #fff; font-weight: 600; letter-spacing: -0.01em;
+  border-radius: 999px; padding: 13px 24px; font-size: 17px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 10px 30px -10px rgba(123, 108, 255, 0.7);
+  transition: transform 0.35s var(--ease), box-shadow 0.35s var(--ease), background 0.2s;
+}
+.btn:hover { transform: translateY(-1px); background: var(--accent-hi); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.3) inset, 0 16px 36px -12px rgba(123, 108, 255, 0.8); }
+.btn svg { width: 17px; height: 17px; }
+.btn.small { padding: 7px 15px; font-size: 14px; box-shadow: none; }
+@media (max-width: 760px) { .nav nav { display: none; } .nav .btn.small { margin-left: auto; } }
+
+/* Hero */
+.hero { padding-block: clamp(48px, 8vw, 110px) 0; text-align: center; }
+.mark { position: relative; width: clamp(104px, 11vw, 140px); aspect-ratio: 1; margin: 0 auto clamp(28px, 4vw, 44px); filter: drop-shadow(0 24px 40px rgba(90, 70, 230, 0.4)); }
+.mark img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hero h1 { margin-inline: auto; max-width: 12ch; }
+.hero .lede { margin: 28px auto 0; }
+.hero .cta { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 36px; flex-wrap: wrap; }
+.req { font-size: 14.5px; color: var(--ink-3); }
+.stage { position: relative; margin: clamp(56px, 8vw, 96px) auto 0; max-width: 1320px; perspective: 2400px; padding-bottom: clamp(60px, 8vw, 120px); }
+.stage .glow {
+  position: absolute; inset: 14% 3% 6%; pointer-events: none; filter: blur(70px); opacity: 0.75;
+  background:
+    radial-gradient(42% 52% at 28% 50%, rgba(123, 108, 255, 0.55), transparent 70%),
+    radial-gradient(34% 44% at 72% 42%, rgba(255, 55, 95, 0.32), transparent 70%),
+    radial-gradient(30% 40% at 60% 78%, rgba(102, 212, 207, 0.26), transparent 70%);
+}
+.window {
+  position: relative; border-radius: clamp(10px, 1.25vw, 18px); overflow: hidden; background: #000;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 30px 60px -20px rgba(0, 0, 0, 0.7), 0 90px 160px -40px rgba(30, 20, 80, 0.7);
+  transform-origin: 50% 0%;
+  transform: rotateX(calc(var(--tilt, 1) * 14deg)) scale(calc(1 - var(--tilt, 1) * 0.05));
+  will-change: transform;
+}
+.window video, .window img { width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; }
+.sound {
+  position: absolute; right: clamp(10px, 1.6vw, 20px); bottom: clamp(10px, 1.6vw, 20px);
+  display: inline-flex; align-items: center; gap: 8px; appearance: none; border: 0; cursor: pointer;
+  font: 600 14px/1 var(--text); color: #fff; padding: 10px 16px 10px 13px; border-radius: 999px;
+  background: rgba(20, 18, 30, 0.55); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset; transition: background 0.2s;
+}
+.sound:hover { background: rgba(40, 36, 60, 0.7); }
+.sound svg { width: 18px; height: 18px; }
+.sound .off { display: none; }
+.sound[aria-pressed="true"] .on { display: none; }
+.sound[aria-pressed="true"] .off { display: block; }
+
+/* Sections */
+section { position: relative; }
+.block { padding-block: clamp(88px, 10vw, 150px); }
+.intro { display: grid; gap: 22px; margin-bottom: clamp(44px, 6vw, 76px); }
+.intro.center { text-align: center; justify-items: center; }
+
+/* Presets: a working copy of Prism's panel. */
+.mixer-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr); gap: clamp(32px, 5vw, 80px); align-items: center; }
+@media (max-width: 920px) { .mixer-grid { grid-template-columns: minmax(0, 1fr); } }
+.mock {
+  width: 100%; max-width: 540px; justify-self: center; border-radius: 30px; padding: clamp(16px, 2.2vw, 24px);
+  background: linear-gradient(180deg, #2a2834, #1e1c27 60%, #1b1924);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07) inset, 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 60px 120px -40px rgba(0, 0, 0, 0.85), 0 40px 120px -60px rgba(123, 108, 255, 0.5);
+}
+.mock-head { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+.mock-head img { width: 58px; height: 58px; border-radius: 10px; }
+.mock-head b { display: block; font-size: 18px; letter-spacing: -0.015em; line-height: 1.2; }
+.mock-head span { display: block; font-size: 14.5px; line-height: 1.3; color: var(--ink-2); }
+.mock-head .from { color: var(--ink-3); }
+.toggle { width: 52px; height: 30px; border-radius: 999px; background: var(--accent); position: relative; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset; }
+.toggle::after { content: ""; position: absolute; right: 3px; top: 3px; width: 34px; height: 24px; border-radius: 999px; background: #fff; }
+.presets { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 20px; }
+.presets button {
+  appearance: none; border: 0; cursor: pointer; border-radius: 15px; padding: 12px 4px 10px; display: grid; justify-items: center; gap: 7px;
+  font: 600 12.5px/1.1 var(--text); color: var(--ink); background: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset, 0 0 0 1px rgba(255, 255, 255, 0.04) inset; transition: background 0.25s, transform 0.2s;
+}
+.presets button:hover { background: rgba(255, 255, 255, 0.11); }
+.presets button:active { transform: scale(0.97); }
+.presets button[aria-pressed="true"] { background: var(--accent); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 10px 24px -12px rgba(123, 108, 255, 0.9); }
+.presets svg, .round svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 480px) { .presets { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.stems { display: grid; gap: 9px; margin-top: 18px; }
+.stem { display: grid; grid-template-columns: minmax(0, 1fr) 38px 38px; gap: 8px; align-items: center; }
+.track { position: relative; height: 40px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 15px; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; width: 60%; border-radius: 999px; background: color-mix(in srgb, var(--c) 72%, #1b1924); }
+.name, .db { position: relative; white-space: nowrap; }
+.name { font-weight: 600; font-size: 15px; display: inline-flex; align-items: center; gap: 9px; }
+.name i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.25); }
+.db { font: 500 13px/1 var(--mono); color: rgba(255, 255, 255, 0.78); font-variant-numeric: tabular-nums; }
+.stem.off .name { color: var(--ink-3); }
+.stem.off .name i { background: var(--ink-3); }
+.stem.off .db { color: var(--ink-3); }
+.round { appearance: none; border: 0; cursor: pointer; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.07); color: var(--ink-2); transition: background 0.2s, color 0.2s; }
+.round svg { width: 18px; height: 18px; }
+.round:hover { color: var(--ink); background: rgba(255, 255, 255, 0.12); }
+.round[aria-pressed="true"] { background: rgba(255, 255, 255, 0.86); color: #1b1924; }
+.round .x { display: none; }
+.round[data-mute][aria-pressed="true"] .w { display: none; }
+.round[data-mute][aria-pressed="true"] .x { display: inline; }
+.mock-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-inline: 4px; color: var(--ink-3); font-size: 13px; }
+.mock-foot .live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #30d158; margin-right: 8px; vertical-align: 1px; }
+.notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.notes button {
+  appearance: none; border: 0; background: transparent; color: inherit; text-align: left; width: 100%; cursor: pointer; font: inherit;
+  display: grid; gap: 4px; padding: 16px 18px; border-radius: 16px; transition: background 0.25s;
+}
+.notes button:hover { background: rgba(255, 255, 255, 0.04); }
+.notes b { font-family: var(--display); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink-2); transition: color 0.25s; }
+.notes span { color: var(--ink-3); font-size: 16.5px; transition: color 0.25s; }
+.notes button[aria-current="true"] { background: rgba(123, 108, 255, 0.12); }
+.notes button[aria-current="true"] b { color: var(--ink); }
+.notes button[aria-current="true"] span { color: var(--ink-2); }
+.aside { margin-top: 22px; padding-inline: 18px; color: var(--ink-3); font-size: 16px; }
+
+/* Sources */
+.sources-grid { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr); gap: clamp(32px, 5vw, 80px); align-items: center; }
+@media (max-width: 920px) { .sources-grid { grid-template-columns: minmax(0, 1fr); } }
+.sources-grid .intro { margin: 0; }
+.apps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.apps span { font-size: 14.5px; color: var(--ink-2); border: 1px solid var(--rule); border-radius: 999px; padding: 6px 13px; background: rgba(255, 255, 255, 0.025); }
+.apps span.all { color: var(--ink); border-color: rgba(123, 108, 255, 0.5); background: rgba(123, 108, 255, 0.14); }
+.shot { border-radius: 22px; overflow: hidden; background: #000; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07) inset, 0 50px 110px -40px rgba(0, 0, 0, 0.9); }
+.shot img { width: 100%; height: auto; }
+.shot.sources img { aspect-ratio: 1320 / 1080; }
+.menubar-shot img { aspect-ratio: 16 / 9; }
+
+/* Facts */
+.band { background: var(--night-2); border-block: 1px solid var(--rule); padding-block: clamp(64px, 7vw, 100px); }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(28px, 4vw, 56px); }
+@media (max-width: 820px) { .facts { grid-template-columns: minmax(0, 1fr); } }
+.facts h3 { margin-bottom: 10px; }
+.facts p { color: var(--ink-2); font-size: 16.5px; }
+.facts > div { border-top: 1px solid var(--rule); padding-top: 22px; }
+
+/* FAQ */
+.faq { display: grid; border-top: 1px solid var(--rule); }
+.faq details { border-bottom: 1px solid var(--rule); }
+.faq summary { list-style: none; cursor: pointer; padding: 24px 0; display: flex; justify-content: space-between; gap: 20px; font-family: var(--display); font-size: 22px; font-weight: 580; letter-spacing: -0.02em; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-weight: 400; color: var(--ink-3); transition: transform 0.3s var(--ease); }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { padding-bottom: 24px; color: var(--ink-2); max-width: 40em; }
+
+/* Closing */
+.closing { text-align: center; padding-block: clamp(110px, 14vw, 200px); background: radial-gradient(60% 50% at 50% 30%, rgba(123, 108, 255, 0.16), transparent 70%), var(--night); }
+.closing img.icon { width: 132px; height: 132px; margin: 0 auto 36px; filter: drop-shadow(0 30px 50px rgba(90, 70, 230, 0.45)); }
+.closing .lede { margin: 22px auto 0; }
+.closing .cta { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 40px; }
+footer { padding-block: 28px; color: var(--ink-3); font-size: 13.5px; border-top: 1px solid var(--rule); }
+footer .wrap { display: flex; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; }
+
+/* Motion: the logo lights up once, as the film ends; sections rise with scroll and always rest fully visible. */
+@media (prefers-reduced-motion: no-preference) {
+  .mark .layer { animation: light 0.5s var(--ease) both; }
+  .mark .beam { animation-delay: 0.35s; } .mark .r0 { animation-delay: 0.8s; } .mark .r1 { animation-delay: 1.05s; } .mark .r2 { animation-delay: 1.3s; }
+  @supports (animation-timeline: view()) {
+    .rv { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 70%; }
+  }
+}
+@keyframes light { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise { from { opacity: 0.2; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .window { transform: none; } html { scroll-behavior: auto; } }
+</style>
+<link rel="canonical" href="https://prism.mattfalconer.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://prism.mattfalconer.com/">
+<meta property="og:title" content="Prism: take the vocals out of anything">
+<meta property="og:description" content="Prism splits whatever your Mac is playing into vocals, drums, bass and the rest, as it plays. Take the vocals out of anything.">
+<meta property="og:image" content="https://prism.mattfalconer.com/media/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://prism.mattfalconer.com/media/og.jpg">
+<link rel="apple-touch-icon" href="media/icon-512.png">
+</head>
+<body>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="media/icon.png" alt="">Prism</a>
+    <nav aria-label="Sections">
+      <a href="#presets">Presets</a><a href="#sources">Sources</a><a href="#menubar">Menu bar</a><a href="#faq">Questions</a><a href="https://github.com/mattfalconer/prism">GitHub</a>
+    </nav>
+    <a class="btn small" href="https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <!-- The app icon lights up as in the film: the prism, then the beam, then one ray at a time. -->
+      <div class="mark" aria-hidden="true">
+        <img src="media/logo-prism.png" alt="">
+        <img class="layer beam" src="media/logo-beam.png" alt="">
+        <img class="layer r0" src="media/logo-r0.png" alt="">
+        <img class="layer r1" src="media/logo-r1.png" alt="">
+        <img class="layer r2" src="media/logo-full.png" alt="">
+      </div>
+      <h1>Take the vocals out of anything.</h1>
+      <p class="lede">Prism splits whatever your Mac is playing into vocals, drums, bass and the rest, as it plays. Turn the singer off in Spotify, Apple Music, YouTube or any app, and keep the song.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.7 1.3 10.2.8 1.2 1.8 2.6 3.1 2.5 1.3 0 1.7-.8 3.3-.8 1.5 0 1.9.8 3.3.8 1.4 0 2.2-1.2 3-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.6-1-2.6-4.1zM14 5.5c.7-.8 1.1-2 1-3.1-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.6 2.9-1.4z"/></svg>
+          Download for Mac
+        </a>
+        <span class="req">macOS 26 · Apple silicon</span>
+      </div>
+    </div>
+    <div class="wrap">
+      <div class="stage" id="stage">
+        <div class="glow" aria-hidden="true"></div>
+        <div class="window">
+          <video id="film" src="media/film.mp4" poster="media/film-poster.webp" autoplay muted loop playsinline preload="auto"
+                 aria-label="Prism opening from the menu bar over Spotify, switching “Love Deadline” to Instrumental, A Cappella and Rhythm, then picking a new source"></video>
+          <button class="sound" id="sound" type="button" aria-pressed="false">
+            <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+            <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+            <span>Play with sound</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="presets" style="padding-top: clamp(40px, 5vw, 70px)">
+    <div class="wrap">
+      <div class="intro rv">
+        <h2>One click changes the song.</h2>
+        <p class="lede">Five presets for the ways you listen. Switch whenever you like, and the music keeps playing.</p>
+      </div>
+      <div class="mixer-grid">
+        <div class="mock rv" id="mock">
+          <div class="mock-head">
+            <img src="media/cover.webp" alt="Cover of I’m on the Move by John Runefelt">
+            <div><b>Love Deadline</b><span>John Runefelt</span><span class="from">from Spotify</span></div>
+            <span class="toggle" aria-hidden="true"></span>
+          </div>
+          <div class="presets" role="group" aria-label="Presets">
+            <button type="button" data-preset="original" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"/></svg>Original</button>
+            <button type="button" data-preset="instrumental" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M4 4l16 16"/></svg>Instrumental</button>
+            <button type="button" data-preset="karaoke" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="15" cy="8.5" r="4.5"/><path d="M11.8 11.7 4.5 19l1 1 7.3-7.3"/></svg>Karaoke</button>
+            <button type="button" data-preset="acappella" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.4"/><path d="M3 20c.6-3.4 3.1-5.4 6-5.4s5.4 2 6 5.4M16.5 6a4.5 4.5 0 0 1 0 5.5M19.3 3.8a8 8 0 0 1 0 9.9"/></svg>A Cappella</button>
+            <button type="button" data-preset="rhythm" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l4.5 17h-15zM12 15l4.5-7.5M7 16.5h10"/></svg>Rhythm</button>
+          </div>
+          <div class="stems" id="stems">
+            <div class="stem" data-stem="vocals" style="--c: var(--vocals)"><div class="track"><span class="fill" style="width: 77%"></span><span class="name"><i></i>Vocals</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="vocals" aria-pressed="false" aria-label="Mute vocals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="vocals" aria-pressed="false" aria-label="Solo vocals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+            <div class="stem" data-stem="drums" style="--c: var(--drums)"><div class="track"><span class="fill" style="width: 81%"></span><span class="name"><i></i>Drums</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="drums" aria-pressed="false" aria-label="Mute drums"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="drums" aria-pressed="false" aria-label="Solo drums"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+            <div class="stem" data-stem="bass" style="--c: var(--bass)"><div class="track"><span class="fill" style="width: 59%"></span><span class="name"><i></i>Bass</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="bass" aria-pressed="false" aria-label="Mute bass"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="bass" aria-pressed="false" aria-label="Solo bass"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+            <div class="stem" data-stem="guitar" style="--c: var(--guitar)"><div class="track"><span class="fill" style="width: 57%"></span><span class="name"><i></i>Guitar</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="guitar" aria-pressed="false" aria-label="Mute guitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="guitar" aria-pressed="false" aria-label="Solo guitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+            <div class="stem" data-stem="piano" style="--c: var(--piano)"><div class="track"><span class="fill" style="width: 56%"></span><span class="name"><i></i>Keys</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="piano" aria-pressed="false" aria-label="Mute keys"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="piano" aria-pressed="false" aria-label="Solo keys"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+            <div class="stem" data-stem="other" style="--c: var(--other)"><div class="track"><span class="fill" style="width: 64%"></span><span class="name"><i></i>Other</span><span class="db">0 dB</span></div><button type="button" class="round" data-mute="other" aria-pressed="false" aria-label="Mute other"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="w" d="M15.5 9a4 4 0 0 1 0 6"/><path class="x" d="M16 9.5l4.5 4.5M20.5 9.5 16 14"/></svg></button><button type="button" class="round" data-solo="other" aria-pressed="false" aria-label="Solo other"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15.5a2 2 0 0 1 2-2h1.5v6.5H6a2 2 0 0 1-2-2zM20 15.5a2 2 0 0 0-2-2h-1.5v6.5H18a2 2 0 0 0 2-2z"/></svg></button></div>
+          </div>
+          <div class="mock-foot"><span class="live">3 s behind · Balanced</span><span>Live levels from “Love Deadline”</span></div>
+        </div>
+        <div class="say rv">
+          <ul class="notes" id="notes">
+            <li><button type="button" data-preset="original" aria-current="true"><b>Original</b><span>The song as it was recorded.</span></button></li>
+            <li><button type="button" data-preset="instrumental" aria-current="false"><b>Instrumental</b><span>Everything except the vocals. For working, reading or playing along.</span></button></li>
+            <li><button type="button" data-preset="karaoke" aria-current="false"><b>Karaoke</b><span>The vocals turned down to a faint guide, so you can sing the lead.</span></button></li>
+            <li><button type="button" data-preset="acappella" aria-current="false"><b>A Cappella</b><span>Only the vocals.</span></button></li>
+            <li><button type="button" data-preset="rhythm" aria-current="false"><b>Rhythm</b><span>Only the drums and bass. For practising along or finding the groove.</span></button></li>
+          </ul>
+          <p class="aside">Or make your own mix. Every stem has its own level, mute and solo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="sources" style="padding-top: 0">
+    <div class="wrap">
+      <div class="sources-grid">
+        <div class="intro rv">
+          <h2>Works with any app.</h2>
+          <p class="lede">Choose the app you’re listening in. For everything your Mac plays at once, choose All Mac Audio.</p>
+          <div class="apps" aria-label="Sources Prism can follow">
+            <span>Spotify</span><span>Apple Music</span><span>TIDAL</span><span>Deezer</span><span>Amazon Music</span><span>Safari</span><span>Chrome</span><span>Arc</span><span class="all">All Mac Audio</span>
+          </div>
+        </div>
+        <div class="shot sources rv"><img src="media/sources.webp" alt="Prism’s source menu: Spotify, Music, Safari, Chrome, Arc and All Mac Audio" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="menubar" style="padding-top: 0">
+    <div class="wrap">
+      <div class="intro center rv">
+        <h2>Lives in your menu bar.</h2>
+        <p class="lede">Click the prism in the menu bar to open Prism. It’s in the Dock too, if you’d rather use a window.</p>
+      </div>
+      <div class="shot menubar-shot rv"><img src="media/menubar.webp" alt="Prism’s panel open beneath its menu bar icon, over Spotify" loading="lazy"></div>
+    </div>
+  </section>
+
+  <section class="block band">
+    <div class="wrap">
+      <div class="facts">
+        <div class="rv"><h3>Six stems.</h3><p>Vocals, drums, bass, guitar, keys and other. Drag a stem to set its level, click it to mute, or solo it.</p></div>
+        <div class="rv"><h3>A few seconds behind.</h3><p>Prism plays the music a few seconds late so it can split it. Responsive is about 1.5 seconds behind, Balanced about 3 and Studio about 6. Studio sounds cleanest.</p></div>
+        <div class="rv"><h3>Runs on your Mac.</h3><p>The music is split on your Mac. Nothing you play is uploaded.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <div class="wrap narrow">
+      <div class="intro rv"><h2>Questions.</h2></div>
+      <div class="faq">
+        <details open><summary>Which apps does it work with?</summary>
+          <p>Spotify, Apple Music, TIDAL, Deezer and Amazon Music, plus Safari, Chrome and Arc for YouTube and everything else on the web. Any other app playing sound shows up in the list too, or choose All Mac Audio.</p></details>
+        <details><summary>Is it live?</summary>
+          <p>Yes. Prism plays a few seconds behind the original so it can split each moment cleanly: about 1.5, 3 or 6 seconds, depending on the setting you choose. Play, pause, skip and seek stay in step.</p></details>
+        <details><summary>Does it change my music?</summary>
+          <p>No. Prism only changes what you hear while it’s on. Your library, playlists and accounts stay exactly as they are, and turning Prism off plays the music as normal.</p></details>
+        <details><summary>Does it need the internet?</summary>
+          <p>Once, for a one-time 700 MB download that Prism needs to split music. After that it works offline.</p></details>
+        <details><summary>Which Macs does it run on?</summary>
+          <p>Macs with Apple silicon, running macOS 26 or later.</p></details>
+        <details><summary>Is it free?</summary>
+          <p>Yes. Prism is free and open source. Read the code, build it yourself or suggest a change on <a href="https://github.com/mattfalconer/prism">GitHub</a>.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="wrap">
+      <img class="icon rv" src="media/icon-512.png" alt="">
+      <h2 class="rv">Take the vocals out of anything.</h2>
+      <p class="lede rv">Turn the singer off, sing the lead yourself, or hear any part of a song on its own.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg">Download Prism</a>
+        <span class="req">macOS 26 or later · Apple silicon · Free and <a href="https://github.com/mattfalconer/prism">open source</a></span>
+      </div>
+    </div>
+  </section>
+</main>
+<footer><div class="wrap"><span>Prism</span><span>Music in the film: “Love Deadline” by John Runefelt. App names belong to their owners.</span></div></footer>
+
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+
+  // Hero: the film plays silently; one click restarts it with sound.
+  const film = document.getElementById("film"), sound = document.getElementById("sound");
+  if (reduce) { film.removeAttribute("autoplay"); film.pause(); }
+  sound.addEventListener("click", () => {
+    const on = film.muted || film.paused;
+    if (on) { film.currentTime = 0; film.muted = false; film.play().catch(() => {}); }
+    else { film.muted = true; }
+    sound.setAttribute("aria-pressed", String(on));
+    sound.querySelector("span").textContent = on ? "Sound off" : "Play with sound";
+  });
+
+  // The window settles from a gentle tilt as it scrolls into view.
+  const stage = document.getElementById("stage");
+  function tilt() {
+    if (reduce) return stage.style.setProperty("--tilt", 0);
+    const r = stage.getBoundingClientRect();
+    stage.style.setProperty("--tilt", clamp((r.top - innerHeight * 0.18) / (innerHeight * 0.55)).toFixed(4));
+  }
+  addEventListener("scroll", tilt, { passive: true }); addEventListener("resize", tilt); tilt();
+
+  // The panel: presets and mutes behave as they do in Prism; levels are the song's own, four bars on a loop.
+  const order = ["vocals", "drums", "bass", "guitar", "piano", "other"];
+  const presets = {
+    original: {}, instrumental: { mute: ["vocals"] }, karaoke: { guide: ["vocals"] },
+    acappella: { only: ["vocals"] }, rhythm: { only: ["drums", "bass"] }
+  };
+  const rows = Object.fromEntries(order.map(s => [s, document.querySelector(`.stem[data-stem="${s}"]`)]));
+  const state = { preset: "original", muted: new Set(), guide: new Set(), solo: null };
+  const GUIDE = 16 / 42;                       // −16 dB on the panel's 42 dB scale
+
+  function choose(name) {
+    const p = presets[name];
+    state.preset = name; state.solo = null;
+    state.muted = new Set(p.mute || (p.only ? order.filter(s => !p.only.includes(s)) : []));
+    state.guide = new Set(p.guide || []);
+    render();
+  }
+  const audible = s => state.solo ? s === state.solo : !state.muted.has(s);
+  function render() {
+    document.querySelectorAll(".presets button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.preset === state.preset)));
+    document.querySelectorAll("#notes button").forEach(b => b.setAttribute("aria-current", String(b.dataset.preset === state.preset)));
+    for (const s of order) {
+      const row = rows[s], on = audible(s);
+      row.classList.toggle("off", !on);
+      row.querySelector(".db").textContent = !on ? "Muted" : state.guide.has(s) ? "−16 dB" : "0 dB";
+      row.querySelector("[data-mute]").setAttribute("aria-pressed", String(state.muted.has(s)));
+      row.querySelector("[data-solo]").setAttribute("aria-pressed", String(state.solo === s));
+    }
+  }
+  document.querySelectorAll("[data-preset]").forEach(b => b.addEventListener("click", () => choose(b.dataset.preset)));
+  document.querySelectorAll("[data-mute]").forEach(b => b.addEventListener("click", () => {
+    const s = b.dataset.mute;
+    state.muted.has(s) ? state.muted.delete(s) : state.muted.add(s);
+    state.guide.delete(s); state.solo = null; state.preset = null; render();
+  }));
+  document.querySelectorAll("[data-solo]").forEach(b => b.addEventListener("click", () => {
+    const s = b.dataset.solo;
+    state.solo = state.solo === s ? null : s; state.preset = null; render();
+  }));
+
+  const fills = Object.fromEntries(order.map(s => [s, rows[s].querySelector(".fill")]));
+  const shown = Object.fromEntries(order.map(s => [s, parseFloat(fills[s].style.width) / 100]));
+  let meters = null;
+  fetch("meters.json").then(r => r.json()).then(m => { meters = m; }).catch(() => {});
+  const resting = { vocals: .77, drums: .81, bass: .59, guitar: .57, piano: .56, other: .64 };
+  let last = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (now - last < 1000 / 30) return;
+    const dt = (now - (last || now)) / 1000; last = now;
+    const i = meters ? Math.floor(now / 1000 * meters.fps) % meters.frames.length : -1;
+    order.forEach((s, j) => {
+      let level = i >= 0 ? meters.frames[i][j] / 99 : resting[s];
+      if (state.guide.has(s)) level = Math.max(0, level - GUIDE);
+      const target = audible(s) ? level : 0;
+      // Instant attack, about 20 dB a second of release: the panel's own ballistics.
+      shown[s] = target >= shown[s] ? target : Math.max(target, shown[s] - dt * 20 / 42 * 2.2);
+      fills[s].style.width = (shown[s] * 100).toFixed(1) + "%";
+    });
+  }
+  if (!reduce) requestAnimationFrame(frame);
+  else { const apply = () => order.forEach(s => fills[s].style.width = (audible(s) ? resting[s] * (state.guide.has(s) ? 1 - GUIDE : 1) : 0) * 100 + "%");
+         document.querySelectorAll("#mock button, #notes button").forEach(b => b.addEventListener("click", apply)); }
+})();
+</script>
+</body>
+</html>
