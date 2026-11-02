@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: "6.0"
     # MLX runs on Apple silicon only; an Intel Mac gets macOS's own "not supported on this Mac" message.
     ARCHS: arm64
-    MARKETING_VERSION: "1.1"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "1.1.1"
+    CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: XNRZ2YX628
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development"
