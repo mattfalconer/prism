@@ -14,8 +14,7 @@ SITE = Path(__file__).resolve().parent
 OUT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else SITE.parent / "docs"
 URL = "https://prism.mattfalconer.com/"
 DOWNLOAD = "https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg"
-DESCRIPTION = ("Prism splits whatever your Mac is playing into vocals, drums, bass and the rest, as it plays. "
-               "Take the vocals out of anything.")
+DESCRIPTION = "Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays."
 
 page = (SITE / "index.html").read_text()
 assert page.count('href="Prism.dmg"') == 3, "expected three download buttons"

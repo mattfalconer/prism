@@ -4,7 +4,7 @@
 
 Take the vocals out of anything.
 
-Prism splits whatever your Mac is playing into vocals, drums, bass, guitar, keys and other, as it plays. Turn the singer off in Spotify, Apple Music, YouTube or any app, and keep the song.
+Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays. Turn the singer off in Spotify, Apple Music, YouTube or any app, and keep the song.
 
 **[Download Prism for Mac](https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg)** · macOS 26 or later · Apple silicon
 
