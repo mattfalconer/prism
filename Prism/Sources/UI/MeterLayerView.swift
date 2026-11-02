@@ -19,6 +19,9 @@ final class MeterHub {
     /// The meter the display link belongs to. A view's link only fires while that view is on screen, so
     /// it has to belong to a meter that's visible: closing the main window mustn't freeze the menu bar panel.
     private weak var linkOwner: StemMeterNSView?
+    /// Ticks in a row where no level moved; past half a second the link drops to 10 Hz until one does.
+    private var stillTicks = 0
+    private var throttled = false
     weak var engine: LiveEngine?
     #if PROMO
     /// A take replays recorded levels instead of reading the engine.
@@ -55,6 +58,8 @@ final class MeterHub {
         link.add(to: .main, forMode: .common)
         self.link = link
         linkOwner = view
+        stillTicks = 0
+        throttled = false
     }
 
     /// Instant attack, ~20 dB/s release, on a dB scale that reads like a mixer.
@@ -75,13 +80,31 @@ final class MeterHub {
             for slot in 0..<slots { levels[slot] = Self.ballistics(peak: promoPeak(slot), level: levels[slot]) }
         }
         #endif
+        var changed = false
+        #if PROMO
+        changed = promoPeak != nil
+        #endif
         if let engine {
             for slot in 0..<slots {
                 let peak = engine.meters[slot]
                 engine.meters[slot] = 0
-                levels[slot] = Self.ballistics(peak: peak, level: levels[slot])
+                let level = Self.ballistics(peak: peak, level: levels[slot])
+                if level != levels[slot] { changed = true }
+                levels[slot] = level
             }
         }
+        // A resting meter needs no 120 Hz redraws: skip the layer writes when nothing moved, and after
+        // half a second of stillness (paused, silence, off) drop to 10 Hz until a level moves again.
+        stillTicks = changed ? 0 : stillTicks + 1
+        if changed && throttled {
+            link?.preferredFrameRateRange = .default
+            throttled = false
+        }
+        if stillTicks > 60 && !throttled {
+            link?.preferredFrameRateRange = CAFrameRateRange(minimum: 1, maximum: 10, preferred: 10)
+            throttled = true
+        }
+        if !changed && stillTicks > 1 { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for entry in entries {
@@ -97,8 +120,9 @@ final class StemMeterNSView: NSView {
     private let ghost = CALayer()
     var color: NSColor = .systemPink { didSet { refreshColors() } }
     /// 0…1 fader position; the bright meter is post-fader, the ghost shows what's there regardless.
-    var gain: CGFloat = 1
-    var audible = true { didSet { refreshColors() } }
+    /// Redrawn here because the hub skips meters whose level hasn't moved.
+    var gain: CGFloat = 1 { didSet { if gain != oldValue { update(level: level) } } }
+    var audible = true { didSet { refreshColors(); update(level: level) } }
     private var level: CGFloat = 0
 
     override init(frame: NSRect) {

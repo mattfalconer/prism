@@ -66,7 +66,9 @@ public final class ChunkSeparator: @unchecked Sendable {
 
     /// Separates `count` samples starting at each pointer. Returns the stems back to back,
     /// `[stem0 left, stem0 right, stem1 left, …]`, each `count` samples long.
-    public func separate(left: UnsafePointer<Float>, right: UnsafePointer<Float>, count: Int) -> [Float] {
+    /// With `output`, returns only those samples of each stem (the model skips the rest of the work).
+    public func separate(left: UnsafePointer<Float>, right: UnsafePointer<Float>, count: Int,
+                         output range: Range<Int>? = nil) -> [Float] {
         busy.lock()
         defer { busy.unlock() }
         let clock = ContinuousClock()
@@ -91,7 +93,8 @@ public final class ChunkSeparator: @unchecked Sendable {
         var values: [Float]
         do {
             values = try withError {
-                let output = model(mix.expandedDimensions(axis: 0))[0, 0..., 0..., 0 ..< count]
+                let output = range.map { model(mix.expandedDimensions(axis: 0), output: $0)[0] }
+                    ?? model(mix.expandedDimensions(axis: 0))[0, 0..., 0..., 0 ..< count]
                 built = clock.now
                 eval(output)
                 evaluated = clock.now
@@ -99,7 +102,7 @@ public final class ChunkSeparator: @unchecked Sendable {
             }
         } catch {
             failureCount.add(1, ordering: .relaxed)
-            return [Float](repeating: 0, count: config.instruments.count * 2 * count)
+            return [Float](repeating: 0, count: config.instruments.count * 2 * (range?.count ?? count))
         }
         if gain != 1 {
             var undo = 1 / gain
@@ -227,29 +230,31 @@ public final class StreamingSeparator: @unchecked Sendable {
         // when the next, longer one doesn't.
         let start = end - plan.context
         let count = plan.context
+        // Only the emitted stretch and its crossfade tail are used, so only those are computed.
+        let wanted = (emitted - start) ..< (emitted - start + step + fade)
         let stems: [Float]
         if start >= origin {
             let offset = start - origin
             stems = historyLeft.withUnsafeBufferPointer { l in
                 historyRight.withUnsafeBufferPointer { r in
-                    separator.separate(left: l.baseAddress! + offset, right: r.baseAddress! + offset, count: count)
+                    separator.separate(left: l.baseAddress! + offset, right: r.baseAddress! + offset, count: count, output: wanted)
                 }
             }
         } else {
             let padding = [Float](repeating: 0, count: origin - start)
             let left = padding + historyLeft[0 ..< end - origin], right = padding + historyRight[0 ..< end - origin]
             stems = left.withUnsafeBufferPointer { l in
-                right.withUnsafeBufferPointer { r in separator.separate(left: l.baseAddress!, right: r.baseAddress!, count: count) }
+                right.withUnsafeBufferPointer { r in
+                    separator.separate(left: l.baseAddress!, right: r.baseAddress!, count: count, output: wanted)
+                }
             }
         }
 
-        // The emitted stretch plus the crossfade tail sit at `emitted - start` within the chunk.
-        let first = emitted - start
         let channels = outputChannels
         var output = [[Float]](repeating: [], count: channels)
         var nextTail = [[Float]](repeating: [], count: channels)
         for c in 0..<(channels - 2) {
-            let base = c * count + first
+            let base = c * wanted.count
             var block = Array(stems[base ..< base + step])
             if tail.count == channels {
                 // Blend the previous chunk's estimate into this one.

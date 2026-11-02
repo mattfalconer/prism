@@ -35,6 +35,8 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     private let planRequest = Mutex<StreamingPlan?>(nil)
     private let running = Atomic<Bool>(true)
     private let gpuFailed = Atomic<Bool>(false)
+    /// Wakes the worker early for a flush, a mode change or stop.
+    private let wake = DispatchSemaphore(value: 0)
 
     // Statistics.
     private let fedFrames = Atomic<Int>(0)
@@ -147,6 +149,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         overloadListener = nil
         tap.stop()
         running.store(false, ordering: .releasing)
+        wake.signal()
     }
 
     /// True once several chunks in a row have failed on the GPU.
@@ -159,9 +162,9 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     func setHold(_ value: Bool) { hold.store(value, ordering: .releasing) }
 
     /// Drops everything in flight (a new track or a seek).
-    func flush() { flushRequests.add(1, ordering: .releasing) }
+    func flush() { flushRequests.add(1, ordering: .releasing); wake.signal() }
 
-    func setPlan(_ plan: StreamingPlan) { planRequest.withLock { $0 = plan } }
+    func setPlan(_ plan: StreamingPlan) { planRequest.withLock { $0 = plan }; wake.signal() }
 
     /// One model step, timed end to end.
     struct ChunkRecord: Sendable {
@@ -279,7 +282,12 @@ nonisolated final class LiveEngine: @unchecked Sendable {
                     separator.releaseCache()
                     idleSince = clock.now
                 }
-                usleep(4_000)
+                // Sleep until the next step's input should have arrived (it comes in real time), at most
+                // 50 ms so resampling stays incremental; a flush, a mode change or stop wakes it early.
+                // Polling every 4 ms instead woke the Mac about 250 times a second, even when paused.
+                let missing = Double(streaming.plan.latency - streaming.pending) / StreamingSeparator.sampleRate
+                    - Double(inputRing.available) / rate
+                _ = wake.wait(timeout: .now() + min(max(missing, 0.002), 0.05))
                 continue
             }
             let pendingBefore = streaming.pending

@@ -45,6 +45,12 @@ struct SpectralTransform {
 
     /// (batch, frames, nFFT/2 + 1) complex → (batch, length) real.
     func istft(_ spectrum: MLXArray, length: Int) -> MLXArray {
+        istft(spectrum, firstFrame: 0, totalFrames: spectrum.dim(1), samples: 0 ..< length)
+    }
+
+    /// Samples `samples` of the inverse transform of a `totalFrames`-frame spectrum, given only its
+    /// frames from `firstFrame` on (enough of them to cover `samples`).
+    func istft(_ spectrum: MLXArray, firstFrame: Int, totalFrames: Int, samples: Range<Int>) -> MLXArray {
         let batch = spectrum.dim(0), frames = spectrum.dim(1)
         let k = blocksPerFrame
         let framed = (irfft(spectrum, n: nFFT, axis: -1) * window).reshaped(batch, frames, k, hop)
@@ -56,10 +62,11 @@ struct SpectralTransform {
         }
         let signal = sum.reshaped(batch, (frames + k - 1) * hop)
 
-        let start = nFFT / 2
-        precondition(start + length <= signal.dim(1), "requested length exceeds the transform")
-        let envelope = MLXArray(squaredWindowEnvelope(frames: frames)[start ..< start + length])
-        return signal[0..., start ..< start + length] / maximum(envelope, 1e-11)
+        // Padded position p = n + nFFT/2 sits at p − firstFrame·hop in `signal`.
+        let start = samples.lowerBound + nFFT / 2 - firstFrame * hop
+        precondition(start >= 0 && start + samples.count <= signal.dim(1), "the frames don't cover the samples")
+        let envelope = squaredWindowEnvelope(frames: totalFrames)[samples.lowerBound + nFFT / 2 ..< samples.upperBound + nFFT / 2]
+        return signal[0..., start ..< start + samples.count] / maximum(MLXArray(Array(envelope)), 1e-11)
     }
 
     /// Overlap-added squared window, which `istft` divides out for perfect reconstruction.

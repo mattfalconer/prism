@@ -414,7 +414,9 @@ private struct StatusLabel: View {
                 .contentTransition(.numericText())
         }
         .help(helpText)
-        .animation(.default, value: text)
+        // Animate mode changes only: the delay ticks down 0.1 s at a time when the music stops, and
+        // animating every tick drew text on the CPU at up to a third of a core.
+        .animation(.default, value: model.mode)
     }
 
     private var dotColor: Color {

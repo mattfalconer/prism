@@ -79,6 +79,19 @@ func quantizeLinears(_ weights: Weights, bits: Int) -> Weights {
     return result
 }
 
+// MARK: - Fused kernels
+
+// Each of these is several element-wise kernels over a large tensor; compiled, MLX fuses them into one
+// pass (bit-identical, about 11% off a chunk for the GELU). Traced on first use; the separator runs one
+// chunk at a time, so they're never first traced on two threads at once.
+private let fusedL2Norm: @Sendable (MLXArray, MLXArray) -> MLXArray = compile(shapeless: true) { x, gain in
+    x / maximum(sqrt(sum(x * x, axis: -1, keepDims: true)), 1e-12) * gain
+}
+
+private let fusedGelu: @Sendable (MLXArray) -> MLXArray = compile(shapeless: true) { h in
+    0.5 * h * (1 + erf(h / Float(2).squareRoot()))
+}
+
 // MARK: - Layers
 
 private struct Linear {
@@ -122,10 +135,7 @@ private struct L2Norm {
         gain = gamma * Float(gamma.dim(0)).squareRoot()
     }
 
-    func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let norm = sqrt(sum(x * x, axis: -1, keepDims: true))
-        return x / maximum(norm, 1e-12) * gain
-    }
+    func callAsFunction(_ x: MLXArray) -> MLXArray { fusedL2Norm(x, gain) }
 }
 
 private struct Attention {
@@ -174,9 +184,8 @@ private struct FeedForward {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        let h = up(norm(x))
         // Exact (erf) GELU, matching PyTorch's default.
-        return down(0.5 * h * (1 + erf(h / Float(2).squareRoot())))
+        down(fusedGelu(up(norm(x))))
     }
 }
 
@@ -257,8 +266,10 @@ final class BSRoformer {
         }
     }
 
-    /// (batch, channels, samples) → (batch, stems, channels, samples)
-    func callAsFunction(_ audio: MLXArray) -> MLXArray {
+    /// (batch, channels, samples) → (batch, stems, channels, samples), or only the samples in `output`
+    /// (then (batch, stems, channels, output.count)): the transformer still sees every frame, but the
+    /// masks and the inverse transform run only on the frames that reach those samples.
+    func callAsFunction(_ audio: MLXArray, output: Range<Int>? = nil) -> MLXArray {
         let batch = audio.dim(0), channels = audio.dim(1), length = audio.dim(2)
         let bins = config.nFFT / 2 + 1
 
@@ -277,33 +288,46 @@ final class BSRoformer {
         let splits = split(features, indices: bandSplitPoints, axis: -1)
         var x = stacked(zip(splits, bandSplit).map { $1.linear($1.norm($0)) }, axis: -2)
 
+        // Frames whose window touches the requested samples (the STFT is centred: frame f covers
+        // samples f·hop − nFFT/2 ..< f·hop + nFFT/2).
+        let range = output ?? 0 ..< length
+        let half = config.nFFT / 2, hop = config.hop
+        let f0 = max(0, (range.lowerBound + half - config.nFFT + hop) / hop)
+        let f1 = min(frames, (range.upperBound - 1 + half) / hop + 1)
+        let used = f1 - f0
+
         let bands = x.dim(2), dim = config.dim
-        for block in blocks {
+        for (index, block) in blocks.enumerated() {
             // Attend across time within each band, then across bands within each frame.
             var y = x.transposed(0, 2, 1, 3).reshaped(batch * bands, frames, dim)
             y = block.time(y)
             x = y.reshaped(batch, bands, frames, dim).transposed(0, 2, 1, 3)
-            y = block.freq(x.reshaped(batch * frames, bands, dim))
-            x = y.reshaped(batch, frames, bands, dim)
+            // The last frequency transformer works frame by frame, so it only needs the used frames.
+            let last = index == blocks.count - 1
+            if last { x = x[0..., f0 ..< f1] }
+            let count = last ? used : frames
+            y = block.freq(x.reshaped(batch * count, bands, dim))
+            x = y.reshaped(batch, count, bands, dim)
         }
         x = finalNorm(x)
 
         // Complex masks (b, s, t, f, c, 2) applied to the mixture spectrum (b, 1, t, f, c).
         let stems = config.instruments.count
         let masks = stacked(maskEstimators.map { $0(x) }, axis: 1)
-            .reshaped(batch, stems, frames, bins, channels, 2)
+            .reshaped(batch, stems, used, bins, channels, 2)
             .asType(.float32)
         let maskReal = masks[.ellipsis, 0], maskImag = masks[.ellipsis, 1]
-        let mixReal = real.reshaped(batch, channels, frames, bins).transposed(0, 2, 3, 1).expandedDimensions(axis: 1)
-        let mixImag = imag.reshaped(batch, channels, frames, bins).transposed(0, 2, 3, 1).expandedDimensions(axis: 1)
+        let mixReal = real.reshaped(batch, channels, frames, bins)[0..., 0..., f0 ..< f1].transposed(0, 2, 3, 1).expandedDimensions(axis: 1)
+        let mixImag = imag.reshaped(batch, channels, frames, bins)[0..., 0..., f0 ..< f1].transposed(0, 2, 3, 1).expandedDimensions(axis: 1)
         let outReal = mixReal * maskReal - mixImag * maskImag
         let outImag = mixReal * maskImag + mixImag * maskReal
 
         // (b, s, t, f, c) → (b·s·c, t, f) for the inverse transform.
         let toFrames = { (part: MLXArray) in
-            part.transposed(0, 1, 4, 2, 3).reshaped(batch * stems * channels, frames, bins)
+            part.transposed(0, 1, 4, 2, 3).reshaped(batch * stems * channels, used, bins)
         }
         let separated = toFrames(outReal) + toFrames(outImag) * MLXArray(real: 0, imaginary: 1)
-        return spectral.istft(separated, length: length).reshaped(batch, stems, channels, length)
+        return spectral.istft(separated, firstFrame: f0, totalFrames: frames, samples: range)
+            .reshaped(batch, stems, channels, range.count)
     }
 }
