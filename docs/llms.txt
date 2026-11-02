@@ -25,7 +25,7 @@ Or make your own mix with each stem’s level, mute and solo.
 
 **Six stems.** Vocals, drums, bass, guitar, keys and other. Drag a stem to set its level, click it to mute, or solo it.
 
-**A few seconds behind.** Prism plays the music a few seconds late so it can split it. Responsive is about 1.5 seconds behind, Balanced about 3 and Studio about 6. Studio sounds cleanest.
+**A few seconds behind.** Prism plays the music a few seconds late so it can split it. Responsive is about 3 seconds behind, Balanced about 5 and Studio about 8. Studio sounds cleanest.
 
 **Runs on your Mac.** The music is split on your Mac. Nothing you play is uploaded.
 
@@ -33,7 +33,7 @@ Questions and answers:
 
 **Which apps does it work with?** Spotify, Apple Music, TIDAL, Deezer and Amazon Music, plus Safari and Chrome for YouTube and everything else on the web. Any other app playing sound shows up in the list too, or choose All Mac Audio.
 
-**Is it live?** Yes. Prism plays a few seconds behind the original so it can split each moment cleanly: about 1.5, 3 or 6 seconds, depending on the setting you choose. Play, pause, skip and seek stay in step.
+**Is it live?** Yes. Prism plays a few seconds behind the original so it can split each moment cleanly: about 3, 5 or 8 seconds, depending on the setting you choose. Play, pause, skip and seek stay in step.
 
 **Does it change my music?** No. Prism only changes what you hear while it’s on. Your library, playlists and accounts stay exactly as they are, and turning Prism off plays the music as normal.
 

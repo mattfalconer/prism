@@ -24,7 +24,7 @@ Every stem also has its own level, mute and solo.
 
 - Prism works with Spotify, Apple Music, YouTube, TIDAL, Deezer, Amazon Music, Safari and Chrome, or every sound your Mac makes with All Mac Audio.
 - It needs a one-time 700 MB download to split music. After that it works offline, and nothing you play is uploaded. It checks for updates once a day.
-- It plays a few seconds behind the original: about 1.5 seconds (Responsive), 3 (Balanced) or 6 (Studio).
+- It plays a few seconds behind the original: about 3 seconds (Responsive), 5 (Balanced) or 8 (Studio).
 
 ## How it works
 
