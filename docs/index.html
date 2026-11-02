@@ -3,9 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Prism</title>
+<title>Prism: realtime stem-splitter for Mac</title>
 <meta name="description" content="Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.">
 <link rel="icon" href="media/icon.png">
+<link rel="canonical" href="https://prism.mattfalconer.com/">
+<meta name="author" content="Matt Falconer">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#0b0a11">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Prism">
+<meta property="og:url" content="https://prism.mattfalconer.com/">
+<meta property="og:title" content="Prism: take the vocals out of anything">
+<meta property="og:description" content="Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.">
+<meta property="og:image" content="https://prism.mattfalconer.com/media/og.jpg?v=ea4d8eef8f">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Prism’s panel playing “Love Deadline” from Spotify with the Instrumental preset on and the vocals muted, beside the words “Take the vocals out of anything.”">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Prism: take the vocals out of anything">
+<meta name="twitter:description" content="Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.">
+<meta name="twitter:image" content="https://prism.mattfalconer.com/media/og.jpg?v=ea4d8eef8f">
+<meta name="twitter:image:alt" content="Prism’s panel playing “Love Deadline” from Spotify with the Instrumental preset on and the vocals muted, beside the words “Take the vocals out of anything.”">
+<link rel="apple-touch-icon" href="media/icon-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&family=Geist+Mono:wght@400..600&display=swap">
@@ -244,17 +264,137 @@ footer .wrap { display: flex; justify-content: space-between; gap: 8px 24px; fle
 @keyframes rise { from { opacity: 0.2; transform: translateY(40px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .window { transform: none; } html { scroll-behavior: auto; } }
 </style>
-<link rel="canonical" href="https://prism.mattfalconer.com/">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://prism.mattfalconer.com/">
-<meta property="og:title" content="Prism: take the vocals out of anything">
-<meta property="og:description" content="Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.">
-<meta property="og:image" content="https://prism.mattfalconer.com/media/og.jpg">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://prism.mattfalconer.com/media/og.jpg">
-<link rel="apple-touch-icon" href="media/icon-512.png">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebSite",
+   "@id": "https://prism.mattfalconer.com/#website",
+   "url": "https://prism.mattfalconer.com/",
+   "name": "Prism",
+   "description": "Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.",
+   "inLanguage": "en",
+   "author": {
+    "@id": "https://prism.mattfalconer.com/#author"
+   }
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://prism.mattfalconer.com/#app",
+   "name": "Prism",
+   "url": "https://prism.mattfalconer.com/",
+   "description": "Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.",
+   "applicationCategory": "MultimediaApplication",
+   "operatingSystem": "macOS 26 or later",
+   "processorRequirements": "Apple silicon",
+   "downloadUrl": "https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "USD"
+   },
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "author": {
+    "@id": "https://prism.mattfalconer.com/#author"
+   },
+   "image": "https://prism.mattfalconer.com/media/icon-512.png",
+   "screenshot": "https://prism.mattfalconer.com/media/menubar.webp",
+   "featureList": [
+    "Original: The song as it was recorded.",
+    "Instrumental: Everything except the vocals. For working, reading or playing along.",
+    "Karaoke: The vocals turned down to a faint guide, so you can sing the lead.",
+    "A Cappella: Only the vocals.",
+    "Rhythm: Only the drums and bass. For practising along or finding the groove.",
+    "Or make your own mix. Every stem has its own level, mute and solo.",
+    "Works with any app. Choose the app you’re listening in. For everything your Mac plays at once, choose All Mac Audio.",
+    "Lives in your menu bar. Click the prism in the menu bar to open Prism. It’s in the Dock too, if you’d rather use a window.",
+    "Six stems. Vocals, drums, bass, guitar, keys and other. Drag a stem to set its level, click it to mute, or solo it.",
+    "A few seconds behind. Prism plays the music a few seconds late so it can split it. Responsive is about 1.5 seconds behind, Balanced about 3 and Studio about 6. Studio sounds cleanest.",
+    "Runs on your Mac. The music is split on your Mac. Nothing you play is uploaded."
+   ],
+   "sameAs": [
+    "https://github.com/mattfalconer/prism"
+   ]
+  },
+  {
+   "@type": "SoftwareSourceCode",
+   "@id": "https://prism.mattfalconer.com/#code",
+   "name": "Prism",
+   "codeRepository": "https://github.com/mattfalconer/prism",
+   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+   "author": {
+    "@id": "https://prism.mattfalconer.com/#author"
+   },
+   "targetProduct": {
+    "@id": "https://prism.mattfalconer.com/#app"
+   }
+  },
+  {
+   "@type": "Person",
+   "@id": "https://prism.mattfalconer.com/#author",
+   "name": "Matt Falconer",
+   "url": "https://github.com/mattfalconer"
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://prism.mattfalconer.com/#faq",
+   "url": "https://prism.mattfalconer.com/",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Which apps does it work with?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Spotify, Apple Music, TIDAL, Deezer and Amazon Music, plus Safari and Chrome for YouTube and everything else on the web. Any other app playing sound shows up in the list too, or choose All Mac Audio."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is it live?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Prism plays a few seconds behind the original so it can split each moment cleanly: about 1.5, 3 or 6 seconds, depending on the setting you choose. Play, pause, skip and seek stay in step."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it change my music?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Prism only changes what you hear while it’s on. Your library, playlists and accounts stay exactly as they are, and turning Prism off plays the music as normal."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does it need the internet?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Once, for a one-time 700 MB download that Prism needs to split music. After that it works offline."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Which Macs does it run on?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Macs with Apple silicon, running macOS 26 or later."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is it free?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Prism is free and open source. Read the code, build it yourself or suggest a change on GitHub."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
 </head>
 <body>
 <header class="nav">

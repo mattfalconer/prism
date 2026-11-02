@@ -1,0 +1,6 @@
+{
+  "about": "Places Prism can download the BS-Roformer SW checkpoint on first run, tried in order before the original release. Prism only accepts a file whose SHA-256 matches the one built into the app.",
+  "urls": [
+    "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/BS-Roformer-SW.ckpt"
+  ]
+}

@@ -1,0 +1,5 @@
+# Everyone is welcome to everything here: search engines and AI crawlers alike.
+User-agent: *
+Allow: /
+
+Sitemap: https://prism.mattfalconer.com/sitemap.xml

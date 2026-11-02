@@ -1,0 +1,50 @@
+# Prism
+
+> Prism is a realtime stem-splitter for Mac, allowing you to take vocals out of any audio, as it plays.
+
+Take the vocals out of anything. Turn the singer off in Spotify, Apple Music, YouTube or any app, and keep the song.
+
+- Price: free and open source (GPL-3.0)
+- Requirements: Macs with Apple silicon, running macOS 26 or later.
+- Made by: Matt Falconer
+- Download: https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg
+
+**One click changes the song.** Five presets for the ways you listen. Switch whenever you like, and the music keeps playing.
+
+- Original: The song as it was recorded.
+- Instrumental: Everything except the vocals. For working, reading or playing along.
+- Karaoke: The vocals turned down to a faint guide, so you can sing the lead.
+- A Cappella: Only the vocals.
+- Rhythm: Only the drums and bass. For practising along or finding the groove.
+
+Or make your own mix. Every stem has its own level, mute and solo.
+
+**Works with any app.** Choose the app you’re listening in. For everything your Mac plays at once, choose All Mac Audio. Sources: Spotify, Apple Music, YouTube, TIDAL, Deezer, Amazon Music, Safari, Chrome, All Mac Audio.
+
+**Lives in your menu bar.** Click the prism in the menu bar to open Prism. It’s in the Dock too, if you’d rather use a window.
+
+**Six stems.** Vocals, drums, bass, guitar, keys and other. Drag a stem to set its level, click it to mute, or solo it.
+
+**A few seconds behind.** Prism plays the music a few seconds late so it can split it. Responsive is about 1.5 seconds behind, Balanced about 3 and Studio about 6. Studio sounds cleanest.
+
+**Runs on your Mac.** The music is split on your Mac. Nothing you play is uploaded.
+
+Questions and answers:
+
+**Which apps does it work with?** Spotify, Apple Music, TIDAL, Deezer and Amazon Music, plus Safari and Chrome for YouTube and everything else on the web. Any other app playing sound shows up in the list too, or choose All Mac Audio.
+
+**Is it live?** Yes. Prism plays a few seconds behind the original so it can split each moment cleanly: about 1.5, 3 or 6 seconds, depending on the setting you choose. Play, pause, skip and seek stay in step.
+
+**Does it change my music?** No. Prism only changes what you hear while it’s on. Your library, playlists and accounts stay exactly as they are, and turning Prism off plays the music as normal.
+
+**Does it need the internet?** Once, for a one-time 700 MB download that Prism needs to split music. After that it works offline.
+
+**Which Macs does it run on?** Macs with Apple silicon, running macOS 26 or later.
+
+**Is it free?** Yes. Prism is free and open source. Read the code, build it yourself or suggest a change on GitHub.
+
+## Links
+
+- [Prism website](https://prism.mattfalconer.com/): the page this summarises
+- [Download Prism for Mac](https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg): the latest release, as a disk image
+- [Source code](https://github.com/mattfalconer/prism): the GitHub repository, under the GPL-3.0 licence

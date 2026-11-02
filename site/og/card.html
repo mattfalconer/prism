@@ -1,0 +1,53 @@
+<!doctype html>
+<!--
+  The link-preview card (media/og.jpg, 1200x630). Not published: build.py copies only media/.
+  panel.png is a real frame of Prism's panel from the launch film's 3x capture (Prism-Film/deadline/take4.mov at about
+  11.5 s, decoded as bt709), cropped above the transport row and scaled to 1084 px wide. The icon is the real render.
+  Render at 2x with headless Chrome, then scale to 1200x630 and save as JPEG:
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+      --force-device-scale-factor=2 --window-size=1200,630 --virtual-time-budget=10000 \
+      --screenshot=/path/to/card@2x.png "file://$PWD/site/og/card.html"
+    python3 -c "from PIL import Image; Image.open('card@2x.png').convert('RGB').resize((1200, 630), Image.LANCZOS) \
+      .save('site/media/og.jpg', quality=90, subsampling=0, optimize=True)"
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&display=block">
+<style>
+:root { --night: #0b0a11; --ink: #f4f2fa; --ink-2: #b6b1c6; --ink-3: #7d788f; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; }
+body {
+  position: relative;
+  background: radial-gradient(52% 64% at 74% 46%, rgba(123, 108, 255, 0.15), transparent 72%), var(--night);
+  color: var(--ink);
+  font-family: "Instrument Sans", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.copy { position: absolute; left: 76px; top: 62px; width: 480px; }
+.brand { display: flex; align-items: center; gap: 16px; font-size: 38px; font-weight: 600; letter-spacing: -0.02em; }
+.brand img { width: 76px; height: 76px; margin: -4px; }
+h1 {
+  margin: 72px 0 0; font-size: 76px; line-height: 0.96; letter-spacing: -0.035em; font-weight: 640; font-stretch: 88%;
+  text-wrap: balance;
+}
+p { margin: 26px 0 0; font-size: 27px; line-height: 1.3; letter-spacing: -0.01em; color: var(--ink-2); }
+.panel {
+  position: absolute; left: 600px; top: 58px; width: 542px; height: 620px; border-radius: 36px; overflow: hidden;
+  background: #1b1b1b;
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.9);
+}
+.panel img { display: block; width: 100%; }
+.panel::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09) inset, 0 1px 0 rgba(255, 255, 255, 0.06) inset; }
+</style>
+</head>
+<body>
+<div class="copy">
+  <div class="brand"><img src="../media/icon-512.png" alt="">Prism</div>
+  <h1>Take the vocals out of anything.</h1>
+  <p>A realtime stem-splitter for Mac.</p>
+</div>
+<div class="panel"><img src="panel.png" alt=""></div>
+</body>
+</html>
