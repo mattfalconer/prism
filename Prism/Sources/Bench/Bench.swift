@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MLX
 import StemSeparation
 
 /// `Prism --bench <audio> [--offset s] [--seconds s] [--out dir] [--plans name,…]`
@@ -17,7 +18,7 @@ nonisolated enum Bench {
     /// Parses `bf16:9.3/1/1[/0.05]` (precision:context/step/lookahead[/crossfade], seconds).
     static func candidate(_ name: String) -> Candidate? {
         let parts = name.split(separator: ":")
-        guard parts.count == 2, let precision = ["f32": ComputePrecision.float32, "bf16": .bfloat16, "f16": .float16][String(parts[0])]
+        guard parts.count == 2, let precision = ["f32": ComputePrecision.float32, "bf16": .bfloat16, "f16": .float16, "q8": .int8, "q4": .int4][String(parts[0])]
         else { return nil }
         let numbers = parts[1].split(separator: "/").compactMap { Double($0) }
         guard numbers.count >= 3 else { return nil }
@@ -58,10 +59,14 @@ nonisolated enum Bench {
             var separators: [ComputePrecision: ChunkSeparator] = [:]
             print("plan".padding(toLength: 22, withPad: " ", startingAt: 0)
                   + "latency  chunk ms (p95)  load   " + names.map { $0.prefix(6).padding(toLength: 7, withPad: " ", startingAt: 0) }.joined()
-                  + "instr  min-instr")
+                  + "instr  min-instr  peak MB")
             for candidate in candidates {
+                let before = Memory.activeMemory
                 let separator = try separators[candidate.precision]
                     ?? ChunkSeparator(weights: weights, precision: candidate.precision)
+                if separators[candidate.precision] == nil {
+                    print("\(candidate.precision.rawValue) weights: \((Memory.activeMemory - before) / 1_000_000) MB")
+                }
                 separators[candidate.precision] = separator
                 let streaming = StreamingSeparator(separator: separator, plan: candidate.plan)
                 // Warm up the kernels for this chunk size before timing.
@@ -70,6 +75,7 @@ nonisolated enum Bench {
                 streaming.reset()
 
                 streaming.append(left: audio.left, right: audio.right)
+                Memory.peakMemory = 0
                 var outputs = [[Float]](repeating: [], count: streaming.outputChannels)
                 var times: [Double] = []
                 while streaming.canProcess {
@@ -105,7 +111,7 @@ nonisolated enum Bench {
                     let e = [Array(est[0][start ..< start + window]), Array(est[1][start ..< start + window])]
                     worst = min(worst, sdr(reference: r, estimate: e))
                 }
-                line += String(format: "%5.1f", worst)
+                line += String(format: "%5.1f  %6d", worst, Memory.peakMemory / 1_000_000)
                 _ = vocal
                 print(line)
                 if let out { try write(est, to: out, name: candidate.name) }

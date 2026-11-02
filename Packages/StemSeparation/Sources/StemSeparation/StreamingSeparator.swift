@@ -5,12 +5,22 @@ import MLX
 /// Precision the transformer layers run in. The STFT, masks and inverse STFT always stay in float32.
 public enum ComputePrecision: String, Sendable, CaseIterable {
     case float32, float16, bfloat16
+    /// bfloat16 maths with the linear layers' weights quantized to 8 or 4 bits (MLX affine, groups of 64).
+    case int8, int4
 
     var dtype: DType {
         switch self {
         case .float32: .float32
         case .float16: .float16
-        case .bfloat16: .bfloat16
+        case .bfloat16, .int8, .int4: .bfloat16
+        }
+    }
+
+    var bits: Int? {
+        switch self {
+        case .int8: 8
+        case .int4: 4
+        default: nil
         }
     }
 }
@@ -23,7 +33,8 @@ public final class ChunkSeparator: @unchecked Sendable {
     public init(weights url: URL, config: BSRoformerConfig = .sw, precision: ComputePrecision = .float32) throws {
         self.config = config
         let dtype = precision.dtype
-        let weights = try loadArrays(url: url).mapValues { $0.dtype == dtype ? $0 : $0.asType(dtype) }
+        var weights = try loadArrays(url: url).mapValues { $0.dtype == dtype ? $0 : $0.asType(dtype) }
+        if let bits = precision.bits { weights = quantizeLinears(weights, bits: bits) }
         model = try BSRoformer(weights: weights, config: config)
     }
 

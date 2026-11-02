@@ -49,7 +49,7 @@ enum ModelError: LocalizedError {
     case missingWeight(String)
     var errorDescription: String? {
         switch self {
-        case .missingWeight(let key): "The stem model is incomplete (missing \(key)). Remove it in Settings and download it again."
+        case .missingWeight(let key): "The stem model is incomplete (missing \(key))."
         }
     }
 }
@@ -59,18 +59,55 @@ private func weight(_ weights: Weights, _ key: String) throws -> MLXArray {
     return value
 }
 
+// MARK: - Quantization
+
+/// Columns per scale and offset in quantized weights.
+let quantizationGroupSize = 64
+
+/// Swaps every linear layer's weight whose input size divides into groups for MLX's affine quantized
+/// form: the packed `.weight` plus `.qscales` and `.qbiases`. The few that don't divide keep full precision.
+func quantizeLinears(_ weights: Weights, bits: Int) -> Weights {
+    var result = weights
+    for (key, value) in weights where key.hasSuffix(".weight") && value.ndim == 2 && value.dim(1) % quantizationGroupSize == 0 {
+        let prefix = key.dropLast(".weight".count)
+        let packed = quantized(value, groupSize: quantizationGroupSize, bits: bits)
+        result[key] = packed.wq
+        result["\(prefix).qscales"] = packed.scales
+        result["\(prefix).qbiases"] = packed.biases
+    }
+    eval(Array(result.values))
+    return result
+}
+
 // MARK: - Layers
 
 private struct Linear {
     let weight: MLXArray
     let bias: MLXArray?
+    /// Set when `weight` is packed by `quantizeLinears`.
+    let quantization: (scales: MLXArray, biases: MLXArray?, bits: Int)?
 
     init(_ w: Weights, _ prefix: String, bias: Bool = true) throws {
-        weight = try StemSeparation.weight(w, "\(prefix).weight").T
+        let stored = try StemSeparation.weight(w, "\(prefix).weight")
+        if let scales = w["\(prefix).qscales"] {
+            // Packed into 32-bit words: (out, in · bits / 32), with one scale per group of inputs.
+            let inputs = scales.dim(1) * quantizationGroupSize
+            quantization = (scales, w["\(prefix).qbiases"], stored.dim(1) * 32 / inputs)
+            weight = stored
+        } else {
+            quantization = nil
+            weight = stored.T
+        }
         self.bias = bias ? try StemSeparation.weight(w, "\(prefix).bias") : nil
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
+        if let quantization {
+            let y = quantizedMM(x, weight, scales: quantization.scales, biases: quantization.biases,
+                                transpose: true, groupSize: quantizationGroupSize, bits: quantization.bits)
+            if let bias { return y + bias }
+            return y
+        }
         if let bias { return addMM(bias, x, weight) }
         return matmul(x, weight)
     }
