@@ -35,7 +35,7 @@ nonisolated enum ModelLocation {
         case space(needed: Int64)
         var errorDescription: String? {
             switch self {
-            case .corrupt: "The download was damaged. Turn Prism on to try again."
+            case .corrupt: "The downloaded file was damaged."
             case .server(let status): "The download server answered \(status). Try again in a minute."
             case .space(let needed):
                 "Prism needs \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file)) of free space to set up. Free up some space, then try again."
@@ -53,18 +53,20 @@ nonisolated enum ModelLocation {
     /// Cancelling the task stops the download.
     static func install(report: @escaping @Sendable (Step) -> Void) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let checkpoint = folder.appendingPathComponent("BS-Roformer-SW.ckpt")
+        // Where the converter writes before moving the finished file into place.
+        let partial = sw.deletingPathExtension().appendingPathExtension("partial.safetensors")
+        func removeLeftovers() {
+            try? FileManager.default.removeItem(at: checkpoint)
+            try? FileManager.default.removeItem(at: partial)
+        }
+        removeLeftovers()   // from a setup that was quit halfway
+        defer { removeLeftovers() }
         // The checkpoint and its converted copy sit side by side for a moment, plus some room to spare.
         let needed = downloadBytes + installedBytes + 200_000_000
         if let free = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage,
            free < needed {
             throw InstallError.space(needed: needed)
-        }
-        let checkpoint = folder.appendingPathComponent("BS-Roformer-SW.ckpt")
-        // The extension tells MLX the format, so the half-written copy keeps it until it's moved into place.
-        let partial = folder.appendingPathComponent("BS-Roformer-SW.partial.safetensors")
-        defer {
-            try? FileManager.default.removeItem(at: checkpoint)
-            try? FileManager.default.removeItem(at: partial)
         }
         let sources = await sources()
         var lastError: any Error = InstallError.corrupt
@@ -101,11 +103,19 @@ nonisolated enum ModelLocation {
         try Task.checkCancellation()
         try await Task.detached(priority: .userInitiated) {
             report(.preparing)
-            _ = try StemSplitter.convertCheckpoint(checkpoint, to: partial, config: .sw, widen: true)
             if isInstalled { return }   // another copy of Prism finished first
-            try FileManager.default.moveItem(at: partial, to: sw)
+            // Writes beside `sw` and moves the finished file into place, so `sw` is never half-written.
+            _ = try StemSplitter.convertCheckpoint(checkpoint, to: sw, config: .sw, widen: true)
         }.value
     }
+
+    /// Gives up on a stalled connection after 30 s without data (the default is 60), so a dead
+    /// mirror falls through to the next quickly.
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        return URLSession(configuration: configuration)
+    }()
 
     private final class Box<T>: @unchecked Sendable {
         var value: T
@@ -130,7 +140,7 @@ nonisolated enum ModelLocation {
         defer { observation.value?.invalidate() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let download = URLSession.shared.downloadTask(with: source) { location, response, error in
+                let download = session.downloadTask(with: source) { location, response, error in
                     if let error { return continuation.resume(throwing: error) }
                     guard let location, let http = response as? HTTPURLResponse else {
                         return continuation.resume(throwing: URLError(.badServerResponse))
@@ -150,6 +160,8 @@ nonisolated enum ModelLocation {
                     report(.downloading(received: task.countOfBytesReceived, total: expected > 0 ? expected : downloadBytes))
                 }
                 task.value = download
+                // Cancelled before the task existed: the handler below had nothing to cancel.
+                if Task.isCancelled { download.cancel() }
                 download.resume()
             }
         } onCancel: {

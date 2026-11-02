@@ -34,6 +34,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     private let discardTarget = Atomic<Int>(-1)
     private let planRequest = Mutex<StreamingPlan?>(nil)
     private let running = Atomic<Bool>(true)
+    private let gpuFailed = Atomic<Bool>(false)
 
     // Statistics.
     private let fedFrames = Atomic<Int>(0)
@@ -74,7 +75,6 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     private let scratch: UnsafeMutablePointer<Float>
     private static let maxFrames = 4_096
 
-    private var worker: Thread?
 
     /// Testing: also copy the speaker feed here, and optionally keep the speakers silent.
     var recording: RingBuffer?
@@ -115,32 +115,42 @@ nonisolated final class LiveEngine: @unchecked Sendable {
 
     var sampleRate: Double { rate }
     var outputDeviceName: String { tap.outputDeviceName }
+    var outputDeviceID: AudioObjectID { tap.outputDeviceID }
 
     // MARK: Lifecycle
 
     func start() throws {
         let plan = currentPlan.withLock { $0 }
-        let thread = Thread { [unowned self] in self.work(plan: plan) }
+        // The worker holds the engine until it has finished its last chunk, so stopping never waits on
+        // the GPU and the engine can be let go straight away. (The separator lets one chunk run at a time.)
+        let retained = Unmanaged.passRetained(self)
+        let thread = Thread { retained.takeRetainedValue().work(plan: plan) }
         thread.name = "Prism separation"
         thread.qualityOfService = .userInteractive
-        worker = thread
         thread.start()
         overloadListener = AudioObjects.listen(tap.deviceID, kAudioDeviceProcessorOverload, queue: .global()) { [weak self] in
             self?.overloads.add(1, ordering: .relaxed)
         }
-        try tap.start { [unowned self] input, stride, output, frames in
-            self.render(input: input, stride: stride, output: output, frames: frames)
+        do {
+            try tap.start { [unowned self] input, stride, output, frames in
+                self.render(input: input, stride: stride, output: output, frames: frames)
+            }
+        } catch {
+            stop()
+            throw error
         }
     }
 
+    /// Stops the audio at once (the app is unmuted) and tells the worker to finish; it lets go of the
+    /// engine when its current chunk is done.
     func stop() {
         overloadListener = nil
         tap.stop()
         running.store(false, ordering: .releasing)
-        // Let the worker finish its current chunk so MLX isn't torn down mid-flight.
-        while worker?.isFinished == false { usleep(2_000) }
-        worker = nil
     }
+
+    /// True once several chunks in a row have failed on the GPU.
+    var hasFailed: Bool { gpuFailed.load(ordering: .relaxed) }
 
     // MARK: Control (any thread)
 
@@ -232,6 +242,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         var idleSince = clock.now
         var resampleIn = 0.0
 
+        var failedInARow = 0
         var restarted = true
         func restart() {
             restarted = true
@@ -275,8 +286,15 @@ nonisolated final class LiveEngine: @unchecked Sendable {
             Memory.peakMemory = 0
             let signpost = signposter.beginInterval("chunk")
             let started = clock.now
+            let failuresBefore = separator.failures
             let block = streaming.process()
             let elapsed = clock.now - started
+            if separator.failures != failuresBefore {
+                failedInARow += 1
+                if failedInARow >= 3 { gpuFailed.store(true, ordering: .relaxed) }
+            } else {
+                failedInARow = 0
+            }
             let timing = separator.lastTiming
             chunkMilliseconds.store(Int(elapsed.components.attoseconds / 1_000_000_000_000_000 + elapsed.components.seconds * 1000),
                                     ordering: .relaxed)

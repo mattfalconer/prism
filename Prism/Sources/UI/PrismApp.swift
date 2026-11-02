@@ -30,6 +30,7 @@ struct PrismApp: App {
         } label: {
             // The app icon in line: light goes into the prism, and the three rays come out while it's splitting.
             Image(model.status == .live ? "MenuPrismLive" : "MenuPrism")
+                .accessibilityLabel("Prism")
         }
         .menuBarExtraStyle(.window)
     }
@@ -39,6 +40,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let model = PrismModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Two copies would both tap and play the same app, which sounds like an echo. A second launch
+        // brings the first forward and quits.
+        if let other = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .first(where: { $0.processIdentifier != getpid() }) {
+            other.activate()
+            NSApp.terminate(nil)
+            return
+        }
         Updater.shared.start()
         let arguments = ProcessInfo.processInfo.arguments
         if let i = arguments.firstIndex(of: "--tap-pid"), let pid = pid_t(arguments[i + 1]) { Self.model.debugTap(pid: pid) }

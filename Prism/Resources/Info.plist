@@ -25,7 +25,7 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Prism can play, pause and skip in your music app from its menu.</string>
+	<string>Prism shows what's playing in Spotify or Music, and plays, pauses and skips from its window.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Prism listens to the app you choose so it can split its music into stems as it plays.</string>
 	<key>SUEnableAutomaticChecks</key>

@@ -22,10 +22,14 @@ struct SetupView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if case .failed = model.status {
-                Button("Try Again") { model.turnOn() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.accent)
-                    .padding(.bottom, 6)
+                HStack(spacing: 10) {
+                    Button("Cancel") { model.turnOff() }
+                        .buttonStyle(.bordered)
+                    Button("Try Again") { model.turnOn() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.accent)
+                }
+                .padding(.bottom, 6)
             } else {
                 VStack(spacing: 7) {
                     SetupBar(fraction: barFraction)

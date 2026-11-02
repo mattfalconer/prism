@@ -186,7 +186,9 @@ final class PerfRecorder {
         lastCPU = cpu
         samples.append(sample)
         if samples.count > 720 { samples.removeFirst(samples.count - 720) }
-        write(sample, type: "system")
+        // Twice a second adds up over a day; while paused the samples say nothing new, so keep them in
+        // memory for the Performance window only.
+        if stats.playing { write(sample, type: "system") }
     }
 
     // MARK: Writing
@@ -197,12 +199,18 @@ final class PerfRecorder {
         object["type"] = type
         guard let line = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
         data = line + Data("\n".utf8)
-        try? handle.write(contentsOf: data)
+        append(data, to: handle)
     }
 
     private func write(_ object: [String: Any]) {
         guard let handle, let line = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
-        try? handle.write(contentsOf: line + Data("\n".utf8))
+        append(line + Data("\n".utf8), to: handle)
+    }
+
+    /// One log stops growing at 50 MB (about a day of listening), so a Mac left on for weeks can't fill up.
+    private func append(_ data: Data, to handle: FileHandle) {
+        guard (try? handle.offset()).map({ $0 < 50_000_000 }) ?? true else { return }
+        try? handle.write(contentsOf: data)
     }
 
     /// Keeps the newest 20 logs.

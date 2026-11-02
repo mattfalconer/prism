@@ -66,9 +66,9 @@ enum LatencyMode: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .responsive: "about 1.5 s behind, works the GPU hardest"
-        case .balanced: "about 3 s behind"
-        case .studio: "about 6 s behind, cleanest and lightest"
+        case .responsive: "about 3 s behind, works the GPU hardest"
+        case .balanced: "about 5 s behind"
+        case .studio: "about 8 s behind, cleanest and lightest"
         }
     }
 
@@ -141,8 +141,11 @@ final class PrismModel {
     private var listeners: [AudioListener] = []
     private var statsTimer: Timer?
     private var silentSince: Date?
+    /// Rebuilds the tap if the output device's sample rate changes under it (AirPods switching to a call).
+    private var rateListener: AudioListener?
 
     var isOn: Bool { status != .off }
+    var isFailed: Bool { if case .failed = status { true } else { false } }
 
     init() {
         if let saved = UserDefaults.standard.string(forKey: "source"),
@@ -261,9 +264,19 @@ final class PrismModel {
     }
 
     func turnOn() {
-        guard status == .off || { if case .failed = status { true } else { false } }() else { return }
+        if isFailed { turnOff() }   // a retry starts from a clean slate
+        guard status == .off else { return }
         UserDefaults.standard.set(true, forKey: "on")
-        if ModelLocation.isInstalled { load() } else { download() }
+        if separator != nil {
+            // The model stays loaded while Prism is off, so turning back on is instant.
+            status = .loading
+            startListening()
+            rebuild()
+        } else if ModelLocation.isInstalled {
+            load()
+        } else {
+            download()
+        }
     }
 
     private var downloadTask: Task<Void, Never>?
@@ -280,6 +293,8 @@ final class PrismModel {
     private var lastSample: (time: Date, bytes: Int64)?
     private var bytesPerSecond: Double?
     private var downloadStart = Date()
+    /// Counts download attempts, so one that was cancelled can't act on the next one's behalf.
+    private var downloadGeneration = 0
 
     /// First run: fetch the stem model, then carry on starting up.
     private func download() {
@@ -288,16 +303,21 @@ final class PrismModel {
         lastSample = nil
         bytesPerSecond = nil
         downloadStart = Date()
+        downloadGeneration += 1
+        let generation = downloadGeneration
         downloadTask = Task {
             do {
                 try await ModelLocation.install { step in
-                    Task { @MainActor in self.record(step) }
+                    Task { @MainActor in
+                        guard generation == self.downloadGeneration else { return }
+                        self.record(step)
+                    }
                 }
-                guard installing else { return }
+                guard generation == downloadGeneration, installing, !Task.isCancelled else { return }
                 load()
             } catch {
-                guard installing else { return }   // turned off meanwhile
-                status = .failed("Couldn't download what Prism needs. \(error.localizedDescription)")
+                guard generation == downloadGeneration, installing, !Task.isCancelled else { return }   // cancelled or retried
+                status = .failed(error.localizedDescription)
             }
         }
     }
@@ -312,6 +332,9 @@ final class PrismModel {
                 // Either a late update from the download that just finished, or the next copy starting over.
                 guard received < install.received else { return }
                 install.step = .downloading
+            }
+            if received < install.received {
+                // Starting over (a retry or the next copy): the old speed no longer applies.
                 install.secondsLeft = nil
                 lastSample = nil
                 bytesPerSecond = nil
@@ -359,6 +382,7 @@ final class PrismModel {
                 let damaged = ModelLocation.isDamaged
                 if damaged { try? FileManager.default.removeItem(at: ModelLocation.sw) }
                 await MainActor.run {
+                    self.settingUp = false   // the download itself worked; show this in the normal panel
                     self.status = .failed(damaged ? "Prism's model file was damaged, so it has been removed. Turn Prism on to download it again."
                                                   : error.localizedDescription)
                 }
@@ -375,10 +399,13 @@ final class PrismModel {
         engine?.stop()
         engine = nil
         listeners = []
+        rateListener = nil
         statsTimer?.invalidate()
         statsTimer = nil
         stats = nil
         tappedProcesses = []
+        permissionProblem = false
+        silentSince = nil
         status = .off
         UserDefaults.standard.set(false, forKey: "on")
         // Keep the model for a quick restart, but give its GPU buffers back.
@@ -387,6 +414,7 @@ final class PrismModel {
 
     /// Rebuilds the tap when the output device or the source's processes change.
     private func startListening() {
+        statsTimer?.invalidate()
         let system = AudioObjectID(kAudioObjectSystemObject)
         listeners = [
             AudioObjects.listen(system, kAudioHardwarePropertyDefaultOutputDevice) { [weak self] in
@@ -411,6 +439,9 @@ final class PrismModel {
         guard let separator, status != .off else { return }
         engine?.stop()
         engine = nil
+        rateListener = nil
+        permissionProblem = false
+        silentSince = nil
         let processes = ProcessTap.processes(for: source.target)
         tappedProcesses = processes
         if source.target != .system && processes.isEmpty {
@@ -426,11 +457,15 @@ final class PrismModel {
             applyGains()
             if nowPlaying.supportsTransport { engine.setHold(!nowPlaying.isPlaying && nowPlaying.track != nil) }
             try engine.start()
+            rateListener = AudioObjects.listen(engine.outputDeviceID, kAudioDevicePropertyNominalSampleRate) { [weak self] in
+                MainActor.assumeIsolated { self?.rebuild() }
+            }
             status = .live
             perf.begin(mode: mode, engine: engine, source: source.name)
             perf.event("start", "\(source.name) → \(engine.outputDeviceName) at \(Int(engine.sampleRate)) Hz")
         } catch {
             engine = nil
+            settingUp = false
             status = .failed(error.localizedDescription)
         }
     }
@@ -448,6 +483,12 @@ final class PrismModel {
 
     private func updateStats() {
         guard let engine else { return }
+        if engine.hasFailed {
+            engine.stop()
+            self.engine = nil
+            status = .failed("Prism stopped because the GPU kept reporting errors. Turn Prism on to try again.")
+            return
+        }
         let latest = engine.stats
         perf.tick(engine: engine, stats: latest, mode: mode)
         if stats?.latency.rounded(toPlaces: 1) != latest.latency.rounded(toPlaces: 1) || stats?.playing != latest.playing
@@ -459,7 +500,7 @@ final class PrismModel {
             stats = latest
         }
         // The player says it's playing but the tap hears nothing: almost always the audio-capture permission.
-        if nowPlaying.isPlaying, !latest.receivingAudio {
+        if nowPlaying.supportsTransport, nowPlaying.isPlaying, !latest.receivingAudio {
             silentSince = silentSince ?? Date()
             permissionProblem = Date().timeIntervalSince(silentSince!) > 4
         } else {

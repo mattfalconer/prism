@@ -1,6 +1,7 @@
 import Accelerate
 import Foundation
 import MLX
+import Synchronization
 
 /// Precision the transformer layers run in. The STFT, masks and inverse STFT always stay in float32.
 public enum ComputePrecision: String, Sendable, CaseIterable {
@@ -53,11 +54,21 @@ public final class ChunkSeparator: @unchecked Sendable {
         public var total: Double { prepare + graph + gpu + readback }
     }
 
-    public private(set) var lastTiming = Timing(prepare: 0, graph: 0, gpu: 0, readback: 0)
+    /// One chunk at a time: a stopping engine's last chunk can still be running as the next one starts.
+    private let busy = NSLock()
+    private let timing = Mutex(Timing(prepare: 0, graph: 0, gpu: 0, readback: 0))
+    private let failureCount = Atomic<Int>(0)
+
+    public var lastTiming: Timing { timing.withLock { $0 } }
+    /// Chunks MLX couldn't compute (out of memory, a GPU error). They come back silent instead of
+    /// crashing the app; callers watch this count and stop if it keeps rising.
+    public var failures: Int { failureCount.load(ordering: .relaxed) }
 
     /// Separates `count` samples starting at each pointer. Returns the stems back to back,
     /// `[stem0 left, stem0 right, stem1 left, …]`, each `count` samples long.
     public func separate(left: UnsafePointer<Float>, right: UnsafePointer<Float>, count: Int) -> [Float] {
+        busy.lock()
+        defer { busy.unlock() }
         let clock = ContinuousClock()
         let started = clock.now
         // The model was trained on mixes peaking at 0.9 or less; scale louder chunks down and undo it after.
@@ -76,18 +87,29 @@ public final class ChunkSeparator: @unchecked Sendable {
         var mix = MLXArray(planar, [2, count])
         if padding > 0 { mix = MLX.padded(mix, widths: [0, [0, padding]]) }
         let prepared = clock.now
-        let output = model(mix.expandedDimensions(axis: 0))[0, 0..., 0..., 0 ..< count]
-        let built = clock.now
-        eval(output)
-        let evaluated = clock.now
-        var values = output.asArray(Float.self)
+        var built = prepared, evaluated = prepared
+        var values: [Float]
+        do {
+            values = try withError {
+                let output = model(mix.expandedDimensions(axis: 0))[0, 0..., 0..., 0 ..< count]
+                built = clock.now
+                eval(output)
+                evaluated = clock.now
+                return output.asArray(Float.self)
+            }
+        } catch {
+            failureCount.add(1, ordering: .relaxed)
+            return [Float](repeating: 0, count: config.instruments.count * 2 * count)
+        }
         if gain != 1 {
             var undo = 1 / gain
             vDSP_vsmul(values, 1, &undo, &values, 1, vDSP_Length(values.count))
         }
         let finished = clock.now
-        lastTiming = Timing(prepare: (prepared - started).seconds, graph: (built - prepared).seconds,
-                            gpu: (evaluated - built).seconds, readback: (finished - evaluated).seconds)
+        timing.withLock {
+            $0 = Timing(prepare: (prepared - started).seconds, graph: (built - prepared).seconds,
+                        gpu: (evaluated - built).seconds, readback: (finished - evaluated).seconds)
+        }
         return values
     }
 

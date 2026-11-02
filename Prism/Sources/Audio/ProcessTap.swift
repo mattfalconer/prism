@@ -21,6 +21,8 @@ nonisolated final class ProcessTap: @unchecked Sendable {
 
     let sampleRate: Double
     let outputDeviceName: String
+    /// The output device the aggregate is clocked by.
+    let outputDeviceID: AudioObjectID
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
@@ -49,6 +51,7 @@ nonisolated final class ProcessTap: @unchecked Sendable {
             throw CoreAudioError(what: "Finding the output device", status: -1)
         }
         outputDeviceName = AudioObjects.name(output) ?? "Output"
+        outputDeviceID = output
         // Tap what the processes send to the output device's first stream, in its own channel layout,
         // and read the front pair. A stereo mixdown would scale it: on a multichannel device (the
         // Studio Display has 8 channels) the HAL divides the fold-down by the channel count.

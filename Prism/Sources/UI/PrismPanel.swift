@@ -19,6 +19,8 @@ struct PrismPanel: View {
                     Notice(symbol: "exclamationmark.triangle.fill", tint: .orange, text: message)
                 } else if model.permissionProblem {
                     PermissionNotice()
+                } else if model.nowPlaying.automationDenied {
+                    AutomationNotice(app: model.source.name)
                 }
                 PresetStrip(model: model)
                 VStack(spacing: 6) {
@@ -47,7 +49,7 @@ private struct NowPlayingHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Artwork(url: model.nowPlaying.track?.artwork, fallback: model.source.icon)
+            Artwork(url: model.nowPlaying.track?.artwork, hasTrack: model.nowPlaying.track != nil, fallback: model.source.icon)
                 .frame(width: 52, height: 52)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -60,7 +62,8 @@ private struct NowPlayingHeader: View {
                 SourceMenu(model: model)
             }
             Spacer(minLength: 8)
-            Toggle("Prism", isOn: Binding(get: { model.isOn }, set: { model.setOn($0) }))
+            // A failed start shows as off, so turning it on is the retry.
+            Toggle("Prism", isOn: Binding(get: { model.isOn && !model.isFailed }, set: { model.setOn($0) }))
                 .toggleStyle(.switch)
                 .labelsHidden()
                 .tint(Palette.accent)
@@ -75,26 +78,39 @@ private struct NowPlayingHeader: View {
 
     private var subtitle: String {
         if let track = model.nowPlaying.track, !track.artist.isEmpty { return track.artist }
-        return model.source.target == .system ? "Everything this Mac plays" : "Nothing playing"
+        if model.source.target == .system { return "Everything this Mac plays" }
+        // Only Spotify and Music say what they're playing; for other apps Prism can't tell.
+        return model.nowPlaying.supportsTransport ? "Nothing playing" : "Everything \(model.source.name) plays"
     }
 }
 
 private struct Artwork: View {
     let url: URL?
+    /// False once the source changes: then the old cover goes, instead of waiting for a new one.
+    let hasTrack: Bool
     let fallback: NSImage?
+    @State private var image: NSImage?
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.quaternary)
-            if let url {
-                AsyncImage(url: url) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    placeholder
-                }
+            if let image {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+                    .transition(.opacity)
             } else {
-                placeholder
+                placeholder.transition(.opacity)
             }
+        }
+        .animation(.easeInOut(duration: 0.25), value: image)
+        // The last cover stays up until the next one has loaded, then cross-fades: no flash of the app
+        // icon on every track change.
+        .task(id: "\(url?.absoluteString ?? "")|\(hasTrack)") {
+            guard let url else {
+                if !hasTrack { image = nil }
+                return
+            }
+            guard let (data, _) = try? await URLSession.shared.data(from: url), let loaded = NSImage(data: data) else { return }
+            image = loaded
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.08)))
@@ -115,10 +131,9 @@ private struct SourceMenu: View {
 
     var body: some View {
         Menu {
+            // Toggles, so the menu ticks the source Prism is listening to.
             ForEach(model.sources) { source in
-                Button {
-                    model.select(source)
-                } label: {
+                Toggle(isOn: Binding(get: { model.source == source }, set: { _ in model.select(source) })) {
                     if let icon = source.icon {
                         Label { Text(source.name) } icon: { Image(nsImage: icon.resized(to: 16)) }
                     } else {
@@ -127,7 +142,9 @@ private struct SourceMenu: View {
                 }
             }
             Divider()
-            Button { model.select(.system) } label: { Label("All Mac Audio", systemImage: "macbook") }
+            Toggle(isOn: Binding(get: { model.source == .system }, set: { _ in model.select(.system) })) {
+                Label("All Mac Audio", systemImage: "macbook")
+            }
         } label: {
             HStack(spacing: 3) {
                 Text("from \(model.source.name)")
@@ -168,9 +185,12 @@ private struct PresetStrip: View {
                         .foregroundStyle(selected ? .white : .primary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 9)
+                        // A solid fill: a tinted glass loses its colour when the window isn't in front.
+                        .background(selected ? Palette.accent : .clear, in: .rect(cornerRadius: 12))
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                     .glassEffect(selected ? .regular.tint(Palette.accent).interactive() : .regular.interactive(),
                                  in: .rect(cornerRadius: 12))
                     .promoAnchor("preset.\(preset.rawValue)")
@@ -186,6 +206,8 @@ private struct StemRow: View {
     let model: PrismModel
     @Binding var stem: Stem
     @State private var dragStart: Double?
+    /// Set once a drag has really moved, so returning to the start point doesn't count as a click.
+    @State private var dragged = false
 
     private var slot: Int { model.engine?.stemNames.firstIndex(of: stem.id) ?? Stem.catalogue.firstIndex { $0.id == stem.id } ?? 0 }
     private var audible: Bool { model.isAudible(stem) }
@@ -194,10 +216,10 @@ private struct StemRow: View {
         HStack(spacing: 8) {
             fader
             RowButton(symbol: stem.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", active: stem.muted,
-                      tint: .secondary, help: "Mute \(stem.title)") { model.toggleMute(stem.id) }
+                      tint: .secondary, help: stem.muted ? "Unmute \(stem.title)" : "Mute \(stem.title)") { model.toggleMute(stem.id) }
                 .promoAnchor("mute.\(stem.id)")
             RowButton(symbol: "headphones", active: stem.soloed, tint: Palette.accent,
-                      help: "Solo \(stem.title)") { model.toggleSolo(stem.id) }
+                      help: stem.soloed ? "Stop Soloing \(stem.title)" : "Solo \(stem.title)") { model.toggleSolo(stem.id) }
                 .promoAnchor("solo.\(stem.id)")
         }
     }
@@ -208,7 +230,7 @@ private struct StemRow: View {
                 Capsule().fill(.quaternary.opacity(0.5))
                 // Fader position: neutral, so colour only ever means sound.
                 Capsule()
-                    .fill(.primary.opacity(audible ? 0.07 : 0.0))
+                    .fill(.primary.opacity(audible ? 0.07 : 0.035))
                     .frame(width: max(geometry.size.height, geometry.size.width * stem.level))
                     .opacity(stem.level > 0 ? 1 : 0)
                 // Live level.
@@ -237,15 +259,28 @@ private struct StemRow: View {
                     .onChanged { value in
                         let start = dragStart ?? stem.level
                         dragStart = start
-                        guard abs(value.translation.width) > 2 else { return }
+                        if abs(value.translation.width) > 2 { dragged = true }
+                        guard dragged else { return }
                         stem.level = min(1, max(0, start + value.translation.width / geometry.size.width))
                     }
-                    .onEnded { value in
-                        if abs(value.translation.width) <= 2 { model.toggleMute(stem.id) }
+                    .onEnded { _ in
+                        if !dragged { model.toggleMute(stem.id) }
                         dragStart = nil
+                        dragged = false
                     }
             )
             .help("Drag to set the \(stem.title.lowercased()) level, click to mute")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(stem.title)
+            .accessibilityValue(valueLabel)
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: stem.level = min(1, stem.level + 0.05)
+                case .decrement: stem.level = max(0, stem.level - 0.05)
+                @unknown default: break
+                }
+            }
+            .accessibilityAction(named: stem.muted ? "Unmute" : "Mute") { model.toggleMute(stem.id) }
         }
         .frame(height: 32)
         .promoAnchor("fader.\(stem.id)")
@@ -253,11 +288,13 @@ private struct StemRow: View {
 
     private var valueLabel: String {
         if stem.soloed { return "Solo" }
-        if !audible { return stem.muted ? "Muted" : "Off" }
+        // While dragging a muted stem, show the level it will come back at.
+        if !audible && dragStart == nil { return stem.muted ? "Muted" : "Off" }
         let gain = stem.level * stem.level
         if gain >= 0.999 { return "0 dB" }
         if gain < 0.001 { return "−∞" }
-        return String(format: "%.0f dB", 20 * log10(gain))
+        let db = Int((20 * log10(gain)).rounded())
+        return db == 0 ? "0 dB" : "−\(-db) dB"
     }
 }
 
@@ -279,6 +316,8 @@ private struct RowButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .animation(.snappy(duration: 0.15), value: active)
     }
 }
@@ -294,11 +333,13 @@ private struct Footer: View {
         HStack(spacing: 10) {
             if model.nowPlaying.supportsTransport && !model.showsSetup {
                 HStack(spacing: 2) {
-                    TransportButton(symbol: "backward.fill") { model.nowPlaying.send("previous track") }
-                    TransportButton(symbol: model.nowPlaying.isPlaying ? "pause.fill" : "play.fill", large: true) {
+                    TransportButton(symbol: "backward.fill", label: "Previous Track") { model.nowPlaying.send("previous track") }
+                    TransportButton(symbol: model.nowPlaying.isPlaying ? "pause.fill" : "play.fill",
+                                    label: model.nowPlaying.isPlaying ? "Pause" : "Play", large: true) {
                         model.nowPlaying.send("playpause")
                     }
-                    TransportButton(symbol: "forward.fill") { model.nowPlaying.send("next track") }
+                    .keyboardShortcut(.space, modifiers: [])
+                    TransportButton(symbol: "forward.fill", label: "Next Track") { model.nowPlaying.send("next track") }
                 }
             }
             Spacer()
@@ -320,6 +361,7 @@ private struct Footer: View {
                 Divider()
                 Toggle("Open at Login", isOn: Binding(get: { model.launchesAtLogin }, set: { model.launchesAtLogin = $0 }))
                 Toggle("Show in Menu Bar", isOn: $showsMenuBarIcon)
+                Divider()
                 Button("Quit Prism") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis")
@@ -330,6 +372,8 @@ private struct Footer: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
+            .help("More")
+            .accessibilityLabel("More")
             .glassEffect(.regular.interactive(), in: .circle)
             .fixedSize()
         }
@@ -338,6 +382,7 @@ private struct Footer: View {
 
 private struct TransportButton: View {
     let symbol: String
+    let label: String
     var large = false
     let action: () -> Void
 
@@ -350,6 +395,8 @@ private struct TransportButton: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 
@@ -401,9 +448,9 @@ private struct StatusLabel: View {
 
     private var helpText: String {
         guard let stats = model.stats else { return "" }
-        return String(format: "Model: %d ms per %.1f s step (%.0f%% of real time). %@ Underruns: %d.",
-                      stats.chunkMilliseconds, Double(stats.plan.step) / 44_100, stats.load * 100,
-                      model.engine?.outputDeviceName ?? "", stats.underruns)
+        return String(format: "Each %.1f s step takes %d ms to split (%.0f%% of real time). Playing through %@. Dropouts: %d.",
+                      Double(stats.plan.step) / 44_100, stats.chunkMilliseconds, stats.load * 100,
+                      model.engine?.outputDeviceName ?? "the speakers", stats.underruns)
     }
 }
 
@@ -432,6 +479,22 @@ private struct PermissionNotice: View {
                    text: "Prism can't hear the music yet. Allow it under Screen & System Audio Recording, then turn Prism off and on.")
             Button("Open Privacy Settings") {
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+        }
+    }
+}
+
+private struct AutomationNotice: View {
+    let app: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Notice(symbol: "hand.raised.fill", tint: .orange,
+                   text: "Prism isn't allowed to control \(app), so play, pause and skip won't work. Allow it under Automation.")
+            Button("Open Automation Settings") {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
             }
             .buttonStyle(.glass)
             .controlSize(.small)
