@@ -16,6 +16,9 @@ final class MeterHub {
     private var entries: [Entry] = []
     private var levels: [Float] = []
     private var link: CADisplayLink?
+    /// The meter the display link belongs to. A view's link only fires while that view is on screen, so
+    /// it has to belong to a meter that's visible: closing the main window mustn't freeze the menu bar panel.
+    private weak var linkOwner: StemMeterNSView?
     weak var engine: LiveEngine?
     #if PROMO
     /// A take replays recorded levels instead of reading the engine.
@@ -26,23 +29,32 @@ final class MeterHub {
     func register(_ view: StemMeterNSView, slot: Int) {
         entries.removeAll { $0.view == nil || $0.view === view }
         entries.append(Entry(view: view, slot: slot))
-        if link == nil {
-            let link = view.displayLink(target: self, selector: #selector(tick))
-            #if PROMO
-            // Film takes need every ProMotion frame, even on a busy Mac.
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 120, maximum: 120, preferred: 120)
-            #endif
-            link.add(to: .main, forMode: .common)
-            self.link = link
-        }
+        refreshLink()
     }
 
     func unregister(_ view: StemMeterNSView) {
         entries.removeAll { $0.view == nil || $0.view === view }
-        if entries.isEmpty {
-            link?.invalidate()
-            link = nil
-        }
+        refreshLink()
+    }
+
+    /// Keeps the display link on a meter that's on screen: when its window closes or hides, a meter in
+    /// another visible window takes over, and with none on screen the link stops until one appears.
+    func refreshLink() {
+        entries.removeAll { $0.view == nil }
+        func onScreen(_ view: StemMeterNSView?) -> Bool { view?.window?.occlusionState.contains(.visible) == true }
+        if link != nil, let owner = linkOwner, onScreen(owner), entries.contains(where: { $0.view === owner }) { return }
+        link?.invalidate()
+        link = nil
+        linkOwner = nil
+        guard let view = entries.first(where: { onScreen($0.view) })?.view else { return }
+        let link = view.displayLink(target: self, selector: #selector(tick))
+        #if PROMO
+        // Film takes need every ProMotion frame, even on a busy Mac.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 120, maximum: 120, preferred: 120)
+        #endif
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        linkOwner = view
     }
 
     /// Instant attack, ~20 dB/s release, on a dB scale that reads like a mixer.
@@ -121,9 +133,19 @@ final class StemMeterNSView: NSView {
         fill.cornerRadius = bounds.height / 2
     }
 
+    private var visibilityObserver: NSObjectProtocol?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { MeterHub.shared.unregister(self) }
+        if let visibilityObserver { NotificationCenter.default.removeObserver(visibilityObserver) }
+        visibilityObserver = nil
+        guard let window else { return MeterHub.shared.unregister(self) }
+        // The menu bar panel and the main window come and go; the hub moves its display link to follow.
+        visibilityObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
+                                                                    object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { MeterHub.shared.refreshLink() }
+        }
+        MeterHub.shared.refreshLink()
     }
 }
 
