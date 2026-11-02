@@ -9,15 +9,15 @@ Take the vocals out of anything. Turn the singer off in Spotify, Apple Music, Yo
 - Made by: Matt Falconer
 - Download: https://github.com/mattfalconer/prism/releases/latest/download/Prism.dmg
 
-**Five presets.** Click one to change what you hear. The song keeps playing while you switch.
+**Five presets.** Click a preset to change the mix instantly while the music keeps playing.
 
-- Original: The song as recorded.
-- Instrumental: Everything except the vocals.
-- Karaoke: The vocals turned down low, so you can sing over them.
+- Original: The song unchanged.
+- Instrumental: Vocals muted.
+- Karaoke: Vocals turned down to −16 dB.
 - A Cappella: Only the vocals.
 - Rhythm: Only the drums and bass.
 
-Or make your own mix: each stem has a level, mute and solo.
+Or make your own mix with each stem’s level, mute and solo.
 
 **Works with any app.** Choose the app you’re listening in. For everything your Mac plays at once, choose All Mac Audio. Sources: Spotify, Apple Music, YouTube, TIDAL, Deezer, Amazon Music, Safari, Chrome, All Mac Audio.
 
