@@ -6,6 +6,15 @@
     <description>Updates to Prism</description>
     <language>en</language>
     <item>
+      <title>Prism 1.1.1</title>
+      <pubDate>Mon, 02 Nov 2026 13:59:14 GMT</pubDate>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>Prism 1.1.1 is faster, steadier and easier to read at a glance.</p><ul><li>Each step splits about 15% faster, and Prism wakes far less often while paused.</li><li>Turning Prism off, or switching the source or output, no longer freezes the panel.</li><li>Turning Prism back on is instant: the model stays loaded.</li><li>If the GPU reports errors, Prism skips that moment instead of quitting, and stops with a message if it keeps happening.</li><li>The menu bar prism fills in while Prism is splitting.</li><li>The source menu ticks the app you&#x27;re listening to, and covers fade in when the song changes.</li><li>If Prism isn&#x27;t allowed to control Spotify or Music, the panel says so and opens the right setting.</li><li>The Latency menu now gives the real delays: about 3, 5 or 8 seconds.</li><li>Space plays and pauses, and VoiceOver can read and adjust every stem.</li><li>Only one copy of Prism runs at a time.</li></ul><p>macOS 26 or later, Apple silicon. Notarized by Apple.</p>]]></description>
+      <enclosure url="https://github.com/mattfalconer/prism/releases/download/v1.1.1/Prism-1.1.1.zip" type="application/octet-stream" sparkle:edSignature="CTm1sE8By9ApOsXTUoj2wWyiVXfPb2j9ozsl4IRswCyUWhUYpH1PdGTRyneYyyie3h3A9X6+96rr2UNz+XU6Ag==" length="6679744"/>
+    </item>
+    <item>
       <title>Prism 1.1</title>
       <pubDate>Mon, 02 Nov 2026 12:28:31 GMT</pubDate>
       <sparkle:version>2</sparkle:version>
