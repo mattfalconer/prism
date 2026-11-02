@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Prism</title>
+    <link>https://prism.mattfalconer.com/</link>
+    <description>Updates to Prism</description>
+    <language>en</language>
+    <item>
+      <title>Prism 1.1</title>
+      <pubDate>Mon, 02 Nov 2026 12:28:31 GMT</pubDate>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>Prism now keeps itself up to date.</p><ul><li>Check for Updates: Prism checks once a day, or choose Check for Updates… in the Prism menu or the ••• menu.</li><li>Report a Problem… in the ••• menu opens a GitHub issue with your Mac&#x27;s details filled in.</li><li>The level meters in the menu bar panel keep moving after you close the main window.</li><li>Setup checks there&#x27;s enough free space before downloading, and a damaged model file is downloaded again.</li><li>Prism now installs only on Macs with Apple silicon.</li></ul><p>macOS 26 or later, Apple silicon. Notarized by Apple.</p>]]></description>
+      <enclosure url="https://github.com/mattfalconer/prism/releases/download/v1.1/Prism-1.1.zip" type="application/octet-stream" sparkle:edSignature="myLwEzopQOocdBvevC1RDgne9ccm0k255OVy1Tmr/1PwSpwD6C0xq2Z0t4pkVsl2ZTGNftNB6Lspneq8jMdtDQ==" length="6667623"/>
+    </item>
+  </channel>
+</rss>
