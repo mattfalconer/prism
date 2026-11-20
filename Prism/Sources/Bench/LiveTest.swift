@@ -3,7 +3,7 @@ import AVFoundation
 import Foundation
 import StemSeparation
 
-/// `Prism --live-test <audio> [--offset s] [--seconds s] [--mode balanced] [--out dir]`
+/// `Prism --live-test <audio> [--offset s] [--seconds s] [--model roformer|appleAudioMix] [--mode balanced] [--out dir]`
 ///
 /// The whole live path without a sound: plays an excerpt with `afplay`, taps that process (which
 /// mutes it), runs the real engine with the speakers silenced, records what would have played
@@ -18,6 +18,10 @@ enum LiveTest {
         let offset = value("--offset").flatMap(Double.init) ?? 30
         let seconds = value("--seconds").flatMap(Double.init) ?? 30
         let mode = value("--mode").flatMap(LatencyMode.init(rawValue:)) ?? .balanced
+        guard let model = SeparationModel(rawValue: value("--model") ?? "roformer") else {
+            print("Unknown separation model. Use roformer or appleAudioMix.")
+            return 1
+        }
         let out = URL(fileURLWithPath: value("--out") ?? NSTemporaryDirectory())
         let preset = value("--preset") ?? "instrumental"
         do {
@@ -29,10 +33,18 @@ enum LiveTest {
             try writeWAV([Array(repeating: 0, count: lead) + audio.left, Array(repeating: 0, count: lead) + audio.right],
                          rate: 44_100, to: clip)
 
-            print("Loading model (\(mode.title): \(mode.plan))")
-            let separator = try ChunkSeparator(weights: ModelLocation.sw, precision: .bfloat16)
-            let warm = [Float](repeating: 1e-4, count: mode.plan.context)
-            warm.withUnsafeBufferPointer { _ = separator.separate(left: $0.baseAddress!, right: $0.baseAddress!, count: mode.plan.context) }
+            let backend: LiveEngine.Backend
+            switch model {
+            case .roformer:
+                print("Loading \(model.title) (\(mode.title): \(mode.plan))")
+                let separator = try ChunkSeparator(weights: ModelLocation.sw, precision: .bfloat16)
+                let warm = [Float](repeating: 1e-4, count: mode.plan.context)
+                warm.withUnsafeBufferPointer { _ = separator.separate(left: $0.baseAddress!, right: $0.baseAddress!, count: mode.plan.context) }
+                backend = .roformer(separator, mode.plan)
+            case .appleAudioMix:
+                print("Loading \(model.title)")
+                backend = .appleAudioMix(try NativeAudioMix())
+            }
 
             let player = Process()
             player.executableURL = URL(fileURLWithPath: "/usr/bin/afplay")
@@ -46,7 +58,7 @@ enum LiveTest {
             guard !processes.isEmpty else { print("afplay never appeared to Core Audio"); player.terminate(); return 1 }
             let tap = try ProcessTap(target: .pids([player.processIdentifier]), processes: processes)
             print("Tapping afplay → \(tap.outputDeviceName) at \(Int(tap.sampleRate)) Hz")
-            let engine = LiveEngine(tap: tap, separator: separator, plan: mode.plan)
+            let engine = LiveEngine(tap: tap, backend: backend)
             let recording = RingBuffer(channels: 2, capacity: Int(tap.sampleRate * (seconds + 20)))
             engine.recording = recording
             engine.silenceOutput = true
@@ -64,6 +76,12 @@ enum LiveTest {
                 usleep(100_000)
                 let block = recording.readAll()
                 if !block.isEmpty { recorded[0] += block[0]; recorded[1] += block[1] }
+                if let failure = engine.failureMessage {
+                    engine.stop()
+                    if player.isRunning { player.terminate() }
+                    print("Live test failed: \(failure)")
+                    return 1
+                }
                 let stats = engine.stats
                 if stats.playing { maxLatency = max(maxLatency, stats.latency) }
                 if !player.isRunning && Date().timeIntervalSince(started) > seconds + 2 + 6 { break }
@@ -78,7 +96,17 @@ enum LiveTest {
             if tap.sampleRate != 44_100, let resampler = StreamResampler(from: tap.sampleRate, to: 44_100, channels: 2) {
                 output = resampler.process(recorded)
             }
-            try writeWAV(output, rate: 44_100, to: out.appendingPathComponent("live-\(mode.rawValue)-\(preset).wav"))
+            let variant = model == .appleAudioMix ? model.rawValue : mode.rawValue
+            let outputURL = out.appendingPathComponent("live-\(variant)-\(preset).wav")
+            try writeWAV(output, rate: 44_100, to: outputURL)
+            if model == .appleAudioMix, preset == "instrumental" {
+                guard maxLatency > 0, output.contains(where: { channel in channel.contains { abs($0) > 1e-6 } }) else {
+                    print("The native model did not produce audible output.")
+                    return 1
+                }
+                print("Native backing-track capture: \(outputURL.path)")
+                return 0
+            }
 
             let length = audio.left.count
             var instrumental: [[Float]] = [audio.left, audio.right]

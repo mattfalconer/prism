@@ -107,9 +107,10 @@ final class PerfRecorder {
         sysctlbyname("hw.model", nil, &size, nil, 0)
         var model = [CChar](repeating: 0, count: max(size, 1))
         sysctlbyname("hw.model", &model, &size, nil, 0)
+        let plan = engine.stats.plan
         write(["type": "session", "time": Date().timeIntervalSince1970 * 1000, "machine": String(cString: model),
-               "os": ProcessInfo.processInfo.operatingSystemVersionString, "mode": mode.rawValue,
-               "plan": mode.plan.description, "step": Double(mode.plan.step) / StreamingSeparator.sampleRate,
+               "os": ProcessInfo.processInfo.operatingSystemVersionString, "mode": engine.isNative ? SeparationModel.appleAudioMix.rawValue : mode.rawValue,
+               "plan": plan.description, "step": Double(plan.step) / StreamingSeparator.sampleRate,
                "device": engine.outputDeviceName, "rate": engine.sampleRate, "source": source])
     }
 
@@ -182,7 +183,8 @@ final class PerfRecorder {
             cpu: (cpu - lastCPU) / interval, callbackPeak: callback.peak, callbackPeakCPU: callback.peakCPU,
             callbackBudget: Double(callback.frames) / engine.sampleRate, lateCallbacks: callback.late,
             overloads: callback.overloads, gpuApps: gpuApps, latency: stats.latency,
-            underruns: stats.underruns, mode: mode.rawValue, playing: stats.playing)
+            underruns: stats.underruns, mode: engine.isNative ? SeparationModel.appleAudioMix.rawValue : mode.rawValue,
+            playing: stats.playing)
         lastCPU = cpu
         samples.append(sample)
         if samples.count > 720 { samples.removeFirst(samples.count - 720) }
