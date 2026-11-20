@@ -6,7 +6,7 @@ import StemSeparation
 import Synchronization
 import os
 
-/// The live pipeline: tap → input ring → worker (resample, BS-Roformer, resample) → output ring →
+/// The live pipeline: tap → input ring → worker (resample, separate, resample) → output ring →
 /// real-time mixer → speakers.
 ///
 /// Every stem reaches the output ring separately, so gains, mutes and presets act at the speaker
@@ -16,8 +16,34 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     let stemNames: [String]
     var slotCount: Int { stemNames.count + 1 }
 
+    enum Backend: Sendable {
+        case roformer(ChunkSeparator, StreamingPlan)
+        case appleAudioMix(NativeAudioMix)
+
+        var stemNames: [String] {
+            switch self {
+            case .roformer(let separator, _): separator.config.instruments
+            case .appleAudioMix: NativeAudioMix.stemNames
+            }
+        }
+
+        var isNative: Bool { if case .appleAudioMix = self { true } else { false } }
+
+        var plan: StreamingPlan {
+            switch self {
+            case .roformer(_, let plan): return plan
+            case .appleAudioMix(let separator):
+                let step = Double(NativeAudioMix.blockSize) / NativeAudioMix.sampleRate
+                let lookahead = Double(separator.latencyFrames) / NativeAudioMix.sampleRate
+                return .seconds(context: step + lookahead, step: step, lookahead: lookahead, crossfade: 0)
+            }
+        }
+    }
+
     private let tap: ProcessTap
-    private let separator: ChunkSeparator
+    private let backend: Backend
+    private let silenceBatch: Int
+    var isNative: Bool { backend.isNative }
     private let inputRing: RingBuffer
     private let outputRing: RingBuffer
     private let rate: Double
@@ -34,7 +60,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     private let discardTarget = Atomic<Int>(-1)
     private let planRequest = Mutex<StreamingPlan?>(nil)
     private let running = Atomic<Bool>(true)
-    private let gpuFailed = Atomic<Bool>(false)
+    private let failure = Mutex<String?>(nil)
     /// Wakes the worker early for a flush, a mode change or stop.
     private let wake = DispatchSemaphore(value: 0)
 
@@ -82,12 +108,14 @@ nonisolated final class LiveEngine: @unchecked Sendable {
     var recording: RingBuffer?
     var silenceOutput = false
 
-    init(tap: ProcessTap, separator: ChunkSeparator, plan: StreamingPlan) {
+    init(tap: ProcessTap, backend: Backend) {
         self.tap = tap
-        self.separator = separator
-        stemNames = separator.config.instruments
+        self.backend = backend
+        stemNames = backend.stemNames
         rate = tap.sampleRate
-        let slots = separator.config.instruments.count + 1
+        silenceBatch = Int(rate * (backend.isNative ? 0.02 : 0.15))
+        let slots = backend.stemNames.count + 1
+        let plan = backend.plan
         inputRing = RingBuffer(channels: 2, capacity: Int(rate * 20))
         // Even Studio with catch-up keeps under ~12 s queued.
         outputRing = RingBuffer(channels: slots * 2, capacity: Int(rate * 20))
@@ -103,7 +131,9 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         scratch = .allocate(capacity: Self.maxFrames * 2)
         currentPlan = Mutex(plan)
         planLatency = Atomic(plan.latency)
-        planStep = Atomic(Int(Double(plan.step) * tap.sampleRate / StreamingSeparator.sampleRate))
+        // The native stages emit small blocks, so keep some extra playback headroom.
+        let bufferStep = backend.isNative ? 0.128 : Double(plan.step) / StreamingSeparator.sampleRate
+        planStep = Atomic(Int(bufferStep * rate))
     }
 
     deinit {
@@ -126,7 +156,18 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         // The worker holds the engine until it has finished its last chunk, so stopping never waits on
         // the GPU and the engine can be let go straight away. (The separator lets one chunk run at a time.)
         let retained = Unmanaged.passRetained(self)
-        let thread = Thread { retained.takeRetainedValue().work(plan: plan) }
+        let thread = Thread {
+            let engine = retained.takeRetainedValue()
+            switch engine.backend {
+            case .roformer(let separator, _): engine.work(separator: separator, plan: plan)
+            case .appleAudioMix(let separator):
+                do {
+                    try engine.work(native: separator)
+                } catch {
+                    engine.failure.withLock { $0 = error.localizedDescription }
+                }
+            }
+        }
         thread.name = "Prism separation"
         thread.qualityOfService = .userInteractive
         thread.start()
@@ -152,8 +193,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         wake.signal()
     }
 
-    /// True once several chunks in a row have failed on the GPU.
-    var hasFailed: Bool { gpuFailed.load(ordering: .relaxed) }
+    var failureMessage: String? { failure.withLock { $0 } }
 
     // MARK: Control (any thread)
 
@@ -234,7 +274,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
 
     // MARK: Worker
 
-    private func work(plan initial: StreamingPlan) {
+    private func work(separator: ChunkSeparator, plan initial: StreamingPlan) {
         var streaming = StreamingSeparator(separator: separator, plan: initial)
         let toModel = rate == StreamingSeparator.sampleRate ? nil
             : StreamResampler(from: rate, to: StreamingSeparator.sampleRate, channels: 2)
@@ -299,7 +339,9 @@ nonisolated final class LiveEngine: @unchecked Sendable {
             let elapsed = clock.now - started
             if separator.failures != failuresBefore {
                 failedInARow += 1
-                if failedInARow >= 3 { gpuFailed.store(true, ordering: .relaxed) }
+                if failedInARow >= 3 {
+                    failure.withLock { $0 = "Prism stopped because the GPU kept reporting errors. Turn Prism on to try again." }
+                }
             } else {
                 failedInARow = 0
             }
@@ -327,10 +369,87 @@ nonisolated final class LiveEngine: @unchecked Sendable {
                 afterRestart: restarted)
             restarted = false
             resampleIn = 0
-            chunkRecords.withLock { records in
-                records.append(record)
-                if records.count > 600 { records.removeFirst(records.count - 600) }
+            recordChunk(record)
+        }
+    }
+
+    private func work(native separator: NativeAudioMix) throws {
+        let modelRate = NativeAudioMix.sampleRate
+        let blockSize = NativeAudioMix.blockSize
+        let toModel = rate == modelRate ? nil : StreamResampler(from: rate, to: modelRate, channels: 2)
+        let fromModel = rate == modelRate ? nil : StreamResampler(from: modelRate, to: rate, channels: slotCount * 2)
+        if rate != modelRate && (toModel == nil || fromModel == nil) {
+            throw NativeAudioGraph.Failure(operation: "Apple Audio Mix could not convert the output device’s sample rate.")
+        }
+
+        var pending: [[Float]] = [[], []]
+        var flushes = flushRequests.load(ordering: .acquiring)
+        var restarted = true
+        let clock = ContinuousClock()
+
+        while running.load(ordering: .acquiring) {
+            let requested = flushRequests.load(ordering: .acquiring)
+            if requested != flushes {
+                flushes = requested
+                discardTarget.store(outputRing.writePosition, ordering: .releasing)
+                inputRing.consume(inputRing.available)
+                try separator.reset()
+                toModel?.reset()
+                fromModel?.reset()
+                pending = [[], []]
+                restarted = true
             }
+
+            let input = inputRing.readAll()
+            let inputStarted = clock.now
+            let converted = input.isEmpty ? [] : (toModel?.process(input) ?? input)
+            if !converted.isEmpty {
+                pending[0].append(contentsOf: converted[0])
+                pending[1].append(contentsOf: converted[1])
+            }
+            var resampleIn = (clock.now - inputStarted).seconds
+
+            var offset = 0
+            while offset + blockSize <= pending[0].count,
+                  running.load(ordering: .acquiring),
+                  flushes == flushRequests.load(ordering: .acquiring) {
+                let range = offset..<(offset + blockSize)
+                let started = clock.now
+                let block = try separator.process(left: pending[0][range], right: pending[1][range])
+                let modelTime = (clock.now - started).seconds
+                offset += blockSize
+                chunkMilliseconds.store(Int(modelTime * 1000), ordering: .relaxed)
+
+                guard running.load(ordering: .acquiring),
+                      flushes == flushRequests.load(ordering: .acquiring) else { break }
+                guard let first = block.first, !first.isEmpty else { continue }
+                let outStarted = clock.now
+                let resampled = fromModel?.process(block) ?? block
+                let resampleOut = (clock.now - outStarted).seconds
+                let headroom = Double(outputRing.available) / rate
+                outputRing.write(resampled)
+                recordChunk(ChunkRecord(
+                    time: Date(), emitted: Double(first.count) / modelRate,
+                    backlog: Double(pending[0].count - offset) / modelRate, headroom: headroom,
+                    resampleIn: resampleIn, prepare: 0, graph: modelTime, gpu: 0, readback: 0,
+                    assemble: 0, resampleOut: resampleOut, total: resampleIn + modelTime + resampleOut,
+                    activeMemory: 0, cacheMemory: 0, peakMemory: 0, afterRestart: restarted))
+                resampleIn = 0
+                restarted = false
+            }
+            if offset > 0 {
+                pending[0].removeFirst(offset)
+                pending[1].removeFirst(offset)
+            }
+            let missing = Double(blockSize - pending[0].count) / modelRate - Double(inputRing.available) / rate
+            _ = wake.wait(timeout: .now() + min(max(missing, 0.002), 0.02))
+        }
+    }
+
+    private func recordChunk(_ record: ChunkRecord) {
+        chunkRecords.withLock { records in
+            records.append(record)
+            if records.count > 600 { records.removeFirst(records.count - 600) }
         }
     }
 
@@ -413,7 +532,7 @@ nonisolated final class LiveEngine: @unchecked Sendable {
         }
         silentRun += frames
         pendingSilence += frames
-        if pendingSilence >= Int(rate * 0.15) || silentRun >= drain {
+        if pendingSilence >= silenceBatch || silentRun >= drain {
             inputRing.write(interleaved: nil, stride: 1, frames: pendingSilence)
             fedFrames.add(pendingSilence, ordering: .relaxed)
             pendingSilence = 0

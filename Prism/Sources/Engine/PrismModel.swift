@@ -24,6 +24,11 @@ struct Stem: Identifiable, Equatable {
         Stem(id: "piano", title: "Keys", symbol: "pianokeys", color: Color(hex: 0x66D4CF)),
         Stem(id: "other", title: "Other", symbol: "sparkles", color: Color(hex: 0x30B0C7)),
     ]
+
+    static let nativeCatalogue: [Stem] = [
+        catalogue[0],
+        Stem(id: "backing", title: "Backing Track", symbol: "music.note.list", color: Color(hex: 0x30B0C7)),
+    ]
 }
 
 enum Preset: String, CaseIterable, Identifiable {
@@ -81,6 +86,18 @@ enum LatencyMode: String, CaseIterable, Identifiable {
     }
 }
 
+nonisolated enum SeparationModel: String, CaseIterable, Identifiable {
+    case roformer, appleAudioMix
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .roformer: "BS-RoFormer SW"
+        case .appleAudioMix: "Apple Audio Mix (Experimental)"
+        }
+    }
+}
+
 @Observable
 final class PrismModel {
     /// First run: where the stem model download has got to.
@@ -116,18 +133,35 @@ final class PrismModel {
     var stems = Stem.catalogue {
         didSet {
             // Any change to the mix leaves the untouched original.
-            if bypass, stems != Stem.catalogue { bypass = false }
+            if bypass, stems != stemCatalogue { bypass = false }
             applyGains()
         }
     }
     var bypass = false { didSet { applyGains() } }
+    private(set) var separationModel = SeparationModel.roformer
+    private var nativeAvailable = false
+    private var preparationTask: Task<Void, Never>?
+
+    var availableModels: [SeparationModel] {
+        nativeAvailable ? SeparationModel.allCases : [.roformer]
+    }
+
+    var usesNativeModel: Bool { separationModel == .appleAudioMix }
+
+    private var stemCatalogue: [Stem] { usesNativeModel ? Stem.nativeCatalogue : Stem.catalogue }
+
+    var presets: [Preset] {
+        usesNativeModel ? Preset.allCases.filter { $0 != .rhythm } : Preset.allCases
+    }
     private(set) var source = AudioSource.spotify
     private(set) var sources: [AudioSource] = []
     var mode: LatencyMode = LatencyMode(rawValue: UserDefaults.standard.string(forKey: "mode") ?? "") ?? .balanced {
         didSet {
             UserDefaults.standard.set(mode.rawValue, forKey: "mode")
-            engine?.setPlan(mode.plan)
-            if engine != nil { perf.event("mode", "\(mode.title): \(mode.plan)") }
+            if !usesNativeModel, let engine {
+                engine.setPlan(mode.plan)
+                perf.event("mode", "\(mode.title): \(mode.plan)")
+            }
         }
     }
     private(set) var stats: LiveEngine.Stats?
@@ -156,6 +190,42 @@ final class PrismModel {
         nowPlaying.onEvent = { [weak self] event in self?.handle(event) }
         nowPlaying.refresh()
         refreshSources()
+
+        if NativeAudioMix.hasSystemAssets {
+            if UserDefaults.standard.string(forKey: "separationModel") == SeparationModel.appleAudioMix.rawValue {
+                separationModel = .appleAudioMix
+                stems = stemCatalogue
+            }
+            Task { [weak self] in
+                do {
+                    _ = try await NativeAudioMix.prepare()
+                    guard let self else { return }
+                    nativeAvailable = true
+                    if usesNativeModel, status == .loading { rebuild() }
+                } catch {
+                    guard let self, usesNativeModel else { return }
+                    let wasOn = isOn
+                    turnOff()
+                    separationModel = .roformer
+                    stems = stemCatalogue
+                    UserDefaults.standard.set(separationModel.rawValue, forKey: "separationModel")
+                    if wasOn { status = .failed(error.localizedDescription) }
+                }
+            }
+        }
+    }
+
+    func selectModel(_ model: SeparationModel) {
+        guard model != separationModel, model == .roformer || nativeAvailable else { return }
+        let resume = isOn && !isFailed
+        let preset = activePreset
+        if isOn { turnOff() }
+        separationModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "separationModel")
+        stems = stemCatalogue
+        bypass = false
+        if let preset, presets.contains(preset) { apply(preset) }
+        if resume { turnOn() }
     }
 
     // MARK: Presets
@@ -163,13 +233,14 @@ final class PrismModel {
     var activePreset: Preset? {
         if bypass { return .original }
         // Every stem at unity is the song: the Original tile lights up by itself.
-        return Preset.allCases.first { stems == configured($0) }
+        return presets.first { stems == configured($0) }
     }
 
     func apply(_ preset: Preset) {
+        guard presets.contains(preset) else { return }
         withAnimation(.snappy(duration: 0.25)) {
             if preset == .original {
-                stems = Stem.catalogue
+                stems = stemCatalogue
                 bypass = true
                 return
             }
@@ -179,7 +250,7 @@ final class PrismModel {
     }
 
     private func configured(_ preset: Preset) -> [Stem] {
-        Stem.catalogue.map { stem in
+        stemCatalogue.map { stem in
             var stem = stem
             switch preset {
             case .original: break
@@ -267,8 +338,8 @@ final class PrismModel {
         if isFailed { turnOff() }   // a retry starts from a clean slate
         guard status == .off else { return }
         UserDefaults.standard.set(true, forKey: "on")
-        if separator != nil {
-            // The model stays loaded while Prism is off, so turning back on is instant.
+        if usesNativeModel || separator != nil {
+            // The MLX model stays loaded while Prism is off, so turning back on is instant.
             status = .loading
             startListening()
             rebuild()
@@ -361,36 +432,42 @@ final class PrismModel {
     private func load() {
         status = .loading
         let plan = mode.plan
-        Task.detached(priority: .userInitiated) {
+        preparationTask?.cancel()
+        preparationTask = Task {
             do {
-                let separator = try ChunkSeparator(weights: ModelLocation.sw, precision: .bfloat16)
-                // MLX keeps freed buffers for reuse and by default lets that cache grow to gigabytes.
-                // One chunk peaks at about 1.5 GB, so this still covers reuse, and the rest of the
-                // Mac gets its memory back (paging under pressure is what made the audio glitch).
-                Memory.cacheLimit = 1_600_000_000
-                // Compile the kernels for this chunk size now, not on the first second of music.
-                let silence = [Float](repeating: 1e-4, count: plan.context)
-                silence.withUnsafeBufferPointer { s in _ = separator.separate(left: s.baseAddress!, right: s.baseAddress!, count: plan.context) }
-                await MainActor.run {
-                    self.separator = separator
-                    guard self.status == .loading else { return }
-                    self.startListening()
-                    self.rebuild()
-                }
+                let prepared = try await Self.prepareRoformer(plan: plan)
+                guard !Task.isCancelled else { return }
+                separator = prepared
+                startListening()
+                rebuild()
             } catch {
-                // A damaged copy would fail the same way every time; remove it so turning on downloads it again.
+                guard !Task.isCancelled else { return }
+                // A damaged copy would fail the same way every time; remove it so a retry downloads it again.
                 let damaged = ModelLocation.isDamaged
                 if damaged { try? FileManager.default.removeItem(at: ModelLocation.sw) }
-                await MainActor.run {
-                    self.settingUp = false   // the download itself worked; show this in the normal panel
-                    self.status = .failed(damaged ? "Prism's model file was damaged, so it has been removed. Turn Prism on to download it again."
-                                                  : error.localizedDescription)
-                }
+                settingUp = false
+                status = .failed(damaged ? "Prism's model file was damaged, so it has been removed. Turn Prism on to download it again."
+                                         : error.localizedDescription)
             }
         }
     }
 
+    @concurrent
+    private static func prepareRoformer(plan: StreamingPlan) async throws -> ChunkSeparator {
+        try Task.checkCancellation()
+        let separator = try ChunkSeparator(weights: ModelLocation.sw, precision: .bfloat16)
+        // Leave room to reuse a chunk of GPU buffers while returning unused memory to the system.
+        Memory.cacheLimit = 1_600_000_000
+        let silence = [Float](repeating: 1e-4, count: plan.context)
+        silence.withUnsafeBufferPointer { s in
+            _ = separator.separate(left: s.baseAddress!, right: s.baseAddress!, count: plan.context)
+        }
+        return separator
+    }
+
     func turnOff() {
+        preparationTask?.cancel()
+        preparationTask = nil
         downloadTask?.cancel()
         downloadTask = nil
         settingUp = false
@@ -436,7 +513,10 @@ final class PrismModel {
     }
 
     private func rebuild() {
-        guard let separator, status != .off else { return }
+        guard isOn, usesNativeModel ? nativeAvailable && !isFailed : separator != nil else { return }
+        preparationTask?.cancel()
+        preparationTask = nil
+        perf.end()
         engine?.stop()
         engine = nil
         rateListener = nil
@@ -448,9 +528,27 @@ final class PrismModel {
             status = .waiting("Play something in \(source.name)")
             return
         }
+        if usesNativeModel {
+            status = .loading
+            preparationTask = Task {
+                do {
+                    let prepared = try await NativeAudioMix.prepare()
+                    guard !Task.isCancelled else { return }
+                    startEngine(backend: .appleAudioMix(prepared), processes: processes)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    status = .failed(error.localizedDescription)
+                }
+            }
+        } else if let separator {
+            startEngine(backend: .roformer(separator, mode.plan), processes: processes)
+        }
+    }
+
+    private func startEngine(backend: LiveEngine.Backend, processes: [AudioObjectID]) {
         do {
             let tap = try ProcessTap(target: source.target, processes: processes)
-            let engine = LiveEngine(tap: tap, separator: separator, plan: mode.plan)
+            let engine = LiveEngine(tap: tap, backend: backend)
             self.engine = engine
             engine.silenceOutput = debugSilent
             MeterHub.shared.engine = engine
@@ -483,10 +581,11 @@ final class PrismModel {
 
     private func updateStats() {
         guard let engine else { return }
-        if engine.hasFailed {
+        if let message = engine.failureMessage {
             engine.stop()
             self.engine = nil
-            status = .failed("Prism stopped because the GPU kept reporting errors. Turn Prism on to try again.")
+            perf.end()
+            status = .failed(message)
             return
         }
         let latest = engine.stats

@@ -33,6 +33,12 @@ Every stem also has its own level, mute and solo.
 - The mixer applies the preset and each stem's level, mute and solo, and plays the result.
 - On first run Prism downloads the public BS-Roformer SW checkpoint (699 MB), checks its SHA-256 and converts it to MLX weights in `~/Library/Application Support/Prism/Models`.
 
+## Experimental Apple Audio Mix
+
+On compatible macOS builds, open the **…** menu and choose **Separation Model → Apple Audio Mix (Experimental)**. This option uses system-provided dialogue and music models and shows two faders, **Vocals** and **Backing Track**. BS-RoFormer SW is the default and provides the six-stem mixer and its latency presets.
+
+The experimental option depends on undocumented macOS audio units and tunings. Prism checks that the units can initialize before offering it. To exercise the native playback pipeline with a local file, use `Prism --live-test <audio> --model appleAudioMix --offset 0`.
+
 ## Build it yourself
 
 You need a Mac with Apple silicon, macOS 26, Xcode 26 with the Metal Toolchain (`xcodebuild -downloadComponent MetalToolchain`) and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).

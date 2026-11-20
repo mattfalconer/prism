@@ -168,7 +168,7 @@ private struct PresetStrip: View {
     var body: some View {
         GlassEffectContainer(spacing: 6) {
             HStack(spacing: 6) {
-                ForEach(Preset.allCases) { preset in
+                ForEach(model.presets) { preset in
                     let selected = model.activePreset == preset
                     Button {
                         model.apply(preset)
@@ -209,7 +209,7 @@ private struct StemRow: View {
     /// Set once a drag has really moved, so returning to the start point doesn't count as a click.
     @State private var dragged = false
 
-    private var slot: Int { model.engine?.stemNames.firstIndex(of: stem.id) ?? Stem.catalogue.firstIndex { $0.id == stem.id } ?? 0 }
+    private var slot: Int { model.engine?.stemNames.firstIndex(of: stem.id) ?? model.stems.firstIndex { $0.id == stem.id } ?? 0 }
     private var audible: Bool { model.isAudible(stem) }
 
     var body: some View {
@@ -345,12 +345,24 @@ private struct Footer: View {
             Spacer()
             if !model.showsSetup { StatusLabel(model: model) }   // the setup page says it all
             Menu {
-                Picker("Latency", selection: $model.mode) {
-                    ForEach(LatencyMode.allCases) { mode in
-                        Text("\(mode.title) — \(mode.detail)").tag(mode)
+                if model.availableModels.count > 1 {
+                    Picker("Separation Model", selection: Binding(
+                        get: { model.separationModel }, set: { model.selectModel($0) }
+                    )) {
+                        ForEach(model.availableModels) { model in
+                            Text(model.title).tag(model)
+                        }
                     }
+                    .pickerStyle(.inline)
                 }
-                .pickerStyle(.inline)
+                if !model.usesNativeModel {
+                    Picker("Latency", selection: $model.mode) {
+                        ForEach(LatencyMode.allCases) { mode in
+                            Text("\(mode.title) — \(mode.detail)").tag(mode)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
                 Divider()
                 Button("Performance…") {
                     openWindow(id: "performance")
